@@ -1,0 +1,134 @@
+<?php
+
+namespace plugin\{{name}}\app\controller;
+
+use app\basic\MemberAuth;
+use support\Request;
+use support\Response;
+use support\annotation\route\Get;
+use support\annotation\route\RouteGroup;
+
+/**
+ * {{title_php}} 插件控制器（双入口架构）
+ *
+ * - 页面入口：index() = 前端公开入口 {{entry}}，manage() = 管理入口 {{entry}}/manage，
+ *   由 config/route.php 手动注册；视图（index.html / manage.html）由前端 pnpm build 生成并覆盖占位页。
+ * - 接口路由：类级 #[RouteGroup('/app/{{name}}')] + 方法级 #[Get/Post]，前缀自动拼接，无需在 route.php 重复注册。
+ * - 会员态：前台插件公开接口与会员接口常放同一控制器，统一 use MemberAuth 三姿势——
+ *   ① 公开（白名单不鉴权）；② 必登录（白名单绕 AuthCheck + 方法内 requireMember，见 mineInfo）；
+ *   ③ 纯管理接口（不进白名单，AuthCheck 直接拦截，可配 #[Permission]，见 info）。
+ *   详见《插件开发文档.md》§11.10。
+ */
+#[RouteGroup('/app/{{name}}')]
+class AppController
+{
+    use MemberAuth;
+
+    /**
+     * 免登录白名单：两个页面入口默认开放；
+     * 前台公开业务接口（如 publicPosts / publicDetail）按需追加到此数组，
+     * front 板块只调用白名单内的公开接口；
+     * 需要会员态但走"姿势②自持鉴权"的方法（如 mineInfo）也要追加到这里。
+     */
+    protected array $noNeedLogin = ['index', 'manage', 'publicPosts', 'publicDetail', 'mineInfo'];
+
+    /** 前端公开入口（渲染 views/front 路由树的 SPA，公开可访问） */
+    public function index(): Response
+    {
+        return view('app/index', [
+            'title' => '{{title_php}}'
+        ]);
+    }
+
+    /** 管理入口（渲染 qiankun 子应用 SPA，由基座免登后打开） */
+    public function manage(): Response
+    {
+        return view('app/manage', [
+            'title' => '{{title_php}}'
+        ]);
+    }
+
+    /**
+     * 前台公开接口示例（供 front 板块示例页调用）。
+     * GET {{entry}}/public/posts
+     */
+    #[Get('/public/posts')]
+    public function publicPosts(): Response
+    {
+        // TODO: 替换为真实公开内容（如 CMS 文章列表）
+        return json([
+            'code' => 200,
+            'message' => 'ok',
+            'data' => [
+                'list' => [
+                    ['id' => 1, 'title' => '示例文章', 'summary' => '这是前台公开接口返回的示例内容', 'content' => "第一行内容\n第二行内容", 'created_at' => date('Y-m-d')],
+                ],
+                'total' => 1,
+            ],
+        ]);
+    }
+
+    /**
+     * 前台公开详情接口示例。
+     * GET {{entry}}/public/detail?id=1
+     */
+    #[Get('/public/detail')]
+    public function publicDetail(Request $request): Response
+    {
+        // TODO: 按 id 返回真实公开内容
+        return json([
+            'code' => 200,
+            'message' => 'ok',
+            'data' => [
+                'id' => (int)$request->get('id', 1),
+                'title' => '示例文章',
+                'summary' => '这是前台公开接口返回的示例内容',
+                'content' => "第一行内容\n第二行内容",
+                'created_at' => date('Y-m-d'),
+            ],
+        ]);
+    }
+
+    /**
+     * 示例管理接口（需登录，不在免登录白名单中）。 GET {{entry}}/info
+     *
+     * 姿势③：不写入 $noNeedLogin，未登录由基座 AuthCheck 直接 401 拦截；
+     * 后台 manage 侧接口推荐这种，可配合 #[Permission(slug: '{{name}}:info')] 做 RBAC。
+     */
+    #[Get('/info')]
+    public function info(): Response
+    {
+        return json([
+            'code' => 200,
+            'message' => 'ok',
+            'data' => ['name' => '{{name}}', 'title' => '{{title_php}}'],
+        ]);
+    }
+
+    /**
+     * 会员态接口示例（前台插件推荐姿势②）。 GET {{entry}}/mine/info
+     *
+     * mineInfo 已写入 $noNeedLogin（绕过 AuthCheck，前台无后台会话也能携带会员 JWT 访问），
+     * 登录态在方法内自持：未登录返回业务形 401（前端拦截器可识别后引导跳会员中心登录页）。
+     * 公开接口需要"登录后个性化"时改用 $this->optionalMember($request)，再用 $this->sid() 判空。
+     * 会员等级/分组门槛可调 \plugin\am_member\app\service\MemberService::hasLevel/hasGroup
+     * （需在 manifest.json 声明 "dependencies": ["am_member"]）。
+     */
+    #[Get('/mine/info')]
+    public function mineInfo(Request $request): Response
+    {
+        if ($resp = $this->requireMember($request)) {
+            return $resp;
+        }
+        $ctx = $this->memberContext($request);
+        return json([
+            'code' => 200,
+            'message' => 'ok',
+            'data' => [
+                'sid' => $ctx['sid'],
+                'account_type' => $ctx['account_type'],
+                'is_admin' => $ctx['is_admin'],
+            ],
+        ]);
+    }
+}

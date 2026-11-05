@@ -1,0 +1,174 @@
+// 插件自写左右布局样式（不依赖 Art 的 menuType / ArtSidebarMenu / ArtPageContent）
+// 类名/ID 统一用 plugin- 前缀，避免与基座同名结构（.app-layout/#app-sidebar/#app-main）碰撞。
+.plugin-layout {
+  // 布局高度基准：独立预览=视口高度(100vh)；嵌入基座=视口高度减去基座顶部占用(92px)
+  --plugin-layout-height: 100vh;
+
+  display: flex;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--plugin-layout-height);
+  overflow: hidden;
+  background: var(--default-bg-color);
+
+  &.is-embedded {
+    --plugin-layout-height: calc(100vh - 120px);
+  }
+
+  // 左侧菜单
+  #plugin-sidebar {
+    display: flex;
+    flex-shrink: 0;
+    flex-direction: column;
+    width: 220px;
+    height: 100%;
+    overflow: hidden;
+    user-select: none;
+    padding-top: 10px;
+    border-radius: 6px;
+    background: var(--default-box-color);
+    border: 1px solid var(--art-card-border);
+    transition: width 0.25s ease;
+
+    &.is-collapse {
+      width: 66px;
+    }
+
+    .sidebar-logo {
+      display: flex;
+      flex-shrink: 0;
+      gap: 8px;
+      align-items: center;
+      height: 56px;
+      padding: 0 16px;
+      overflow: hidden;
+      cursor: pointer;
+
+      .sidebar-title {
+        font-size: 16px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+    }
+
+    .sidebar-scroll {
+      flex: 1;
+      min-height: 0;
+    }
+
+    .sidebar-collapse {
+      display: flex;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      height: 44px;
+      font-size: 18px;
+      cursor: pointer;
+      border-top: 1px solid var(--default-border);
+
+      &:hover {
+        color: var(--main-color);
+      }
+    }
+
+    // 细滚动条（对齐基座 .layout-sidebar）
+    :deep(.el-scrollbar__bar.is-vertical) {
+      width: 4px;
+    }
+
+    :deep(.el-scrollbar__thumb) {
+      right: -2px;
+      background-color: #ccc;
+      border-radius: 2px;
+    }
+
+    // ---- 菜单项样式：复刻基座 Art design theme ----
+    :deep(.el-menu) {
+      --el-menu-bg-color: transparent;
+
+      box-sizing: border-box;
+      overscroll-behavior: contain; // 防止菜单内滚动影响整页滚动
+      border-right: 0;
+      scrollbar-width: none;
+
+      // 菜单图标
+      .menu-icon {
+        margin-right: 8px;
+        font-size: 20px;
+
+        .art-svg-icon {
+          font-size: 20px;
+        }
+      }
+
+      // 菜单高度 + 圆角胶囊
+      .el-sub-menu__title,
+      .el-menu-item {
+        width: calc(100% - 16px);
+        height: 42px;
+        margin-bottom: 4px;
+        margin-left: 8px;
+        line-height: 42px;
+        border-radius: 6px;
+
+        .menu-icon {
+          margin-left: -7px;
+        }
+
+        span {
+          font-size: 14px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+      }
+
+      // 右侧展开箭头
+      .el-sub-menu__icon-arrow {
+        width: 13px;
+        font-size: 13px;
+        color: var(--art-gray-600);
+      }
+
+      // hover 背景
+      .el-sub-menu__title:hover,
+      .el-menu-item:not(.is-active):hover {
+        background: var(--art-gray-200) !important;
+      }
+
+      // 选中项：主题色文字 + 浅主色背景（胶囊高亮）
+      .el-menu-item.is-active {
+        color: var(--theme-color) !important;
+        background-color: var(--el-color-primary-light-9) !important;
+
+        .menu-icon .art-svg-icon {
+          color: var(--theme-color) !important;
+        }
+      }
+    }
+  }
+
+  // 右侧内容
+  #plugin-main {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    height: 100%;
+
+    #plugin-content {
+      flex: 1;
+      box-sizing: border-box;
+      min-height: 0;
+      padding-left: 16px;
+      overflow: auto;
+    }
+  }
+}
+
+// 小屏：独立预览改用动态视口高度；嵌入基座时 is-embedded 的 calc 优先级更高会覆盖
+@media only screen and (width <= 1180px) {
+  .plugin-layout:not(.is-embedded) {
+    --plugin-layout-height: 100dvh;
+  }
+}

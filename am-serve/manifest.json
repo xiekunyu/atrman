@@ -1,0 +1,15 @@
+{
+    "name": "atrman",
+    "title": "Atrman 企业级快速开发框架",
+    "version": "1.0.5",
+    "release": "20261104",
+    "author": "raingad",
+    "description": "基于 PHP 8.4 + Vue 3.5 + TypeScript 的企业级后台管理系统",
+    "php_version": ">=8.4",
+    "mysql_version": ">=8.0",
+    "redis_version": ">=5.0",
+    "node_version": ">=20.19.0",
+    "table_prefix": "am_",
+    "homepage": "https://gitee.com/raingad/atrman",
+    "license": "MIT"
+}

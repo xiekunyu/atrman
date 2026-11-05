@@ -1,0 +1,10 @@
+<?php
+
+return [
+    'enable' => true,
+    // 插件配置不继承基座 config/app.php；缺 controller_reuse 时默认 true，控制器实例跨请求复用，
+    // initialize() 里 new 的 $this->model / $this->userInfo 会残留上次请求状态（save() 变 UPDATE、用户串号）。
+    'controller_reuse' => false,
+    // 与全局 app.debug 同口径，缺键时带路径参数的插件路由会报 TypeError（webman 参数注入读 plugin.*.app.debug）。
+    'debug' => (bool)env('APP_DEBUG', false),
+];

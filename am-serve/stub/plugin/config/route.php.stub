@@ -1,0 +1,15 @@
+<?php
+
+use plugin\{{name}}\app\controller\AppController;
+use Webman\Route;
+
+// 插件 HTML 页面入口：精确匹配 {{entry}} 与 {{entry}}/manage（由注解路径无法生成无尾斜杠入口，故手动注册）
+Route::get('{{entry}}', [AppController::class, 'index']);
+Route::get('{{entry}}/manage', [AppController::class, 'manage']);
+
+// 尾斜杠形式同注册：{{entry}}/#/xxx 的 # 片段不发往服务器，实际请求是 {{entry}}/，漏注册会 404
+Route::get('{{entry}}/', [AppController::class, 'index']);
+Route::get('{{entry}}/manage/', [AppController::class, 'manage']);
+
+// 插件业务接口统一走控制器注解路由：类级 #[RouteGroup('{{entry}}')] + 方法级 #[Get/Post]，
+// 前缀 {{entry}} 由框架按类注解自动拼接，无需在此重复注册。

@@ -1,0 +1,13 @@
+-- {{title}} 插件安装 SQL
+-- 边界：本文件只写「插件自有业务表」——建表语句与这些表的种子数据，表名须以 {{name}}_ 前缀。
+--       配置组 / 页面菜单 / 工作台小部件一律由 Plugin::afterInstall / afterEnable
+--       调 \app\basic\PluginRegistrar 声明式注册（按 code / slug 幂等），不在此写死；
+--       按钮权限（type=3）由控制器 #[Permission] 注解扫描同步，同样不在此写死；
+--       「管理入口」顶级菜单（code=app:entry:{{name}}）由基座 PluginManager::syncEntry 独占写入。
+-- 执行时机：仅插件安装（PluginManager::install）时执行一次；打包发布不会向本文件追加任何数据块。
+-- 占位符：`__PREFIX__` 为表前缀；`{{APP_NAME}}` / `{{APP_ID}}` / `{{APP_ENTRY_PATH}}`
+--       由基座 DatabaseService::executeInstallSql 在安装时替换为插件标识、记录 id 与入口菜单地址。
+
+-- --------------------------------------------------------
+-- 业务表：首次安装建表等业务 SQL 请在此追加
+-- --------------------------------------------------------

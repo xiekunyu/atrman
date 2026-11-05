@@ -1,0 +1,28 @@
+<template>
+  <div class="{{name}}-widget">
+    <div class="title">{{title_html}}</div>
+    <div class="content">由 {{name}} 插件提供，可由基座远程加载。</div>
+  </div>
+</template>
+
+<script setup lang="ts">
+defineOptions({ name: '{{component_name}}' })
+</script>
+
+<style scoped>
+.{{name}}-widget {
+  padding: 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  color: #fff;
+}
+.title {
+  font-size: 16px;
+  font-weight: 600;
+}
+.content {
+  margin-top: 8px;
+  font-size: 13px;
+  opacity: .9;
+}
+</style>

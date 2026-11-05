@@ -1,0 +1,85 @@
+<?php
+
+namespace plugin\{{name}};
+
+use app\basic\BasePlugin;
+
+/**
+ * 插件生命周期 Hook。
+ * 按需覆写以下钩子（均来自 BasePlugin，保留默认空实现即不触发）：
+ *   boot          每个 worker 进程启动都会调用：注册 IdentityService provider/extender、事件监听等进程级静态装配
+ *   init          通用初始化
+ *   beforeInstall / afterInstall   安装前 / 后
+ *   beforeEnable  / afterEnable    启用前 / 后
+ *   beforeDisable / afterDisable   禁用前 / 后
+ *   beforeUpgrade / afterUpgrade   升级前 / 后
+ *   beforeUninstall                卸载前
+ *   destroy                        卸载时清理自有数据
+ *   backupTables                   声明备份业务表（表名须以 "{{name}}_" 前缀）
+ */
+class Plugin extends BasePlugin
+{
+    /**
+     * 运行时装配：每个进程启动都会执行，适合做静态注册。
+     * 例：为“人/群”等非默认主体注册身份解析器（会员中心/IM 等按需实现）。
+     */
+    public function boot(array $plugin = []): void
+    {
+        // \app\service\IdentityService::registerProvider(\app\utils\Hashids::TYPE_GROUP, function (array $sids): array {
+        //     return []; // [sid => ['sid','type','name','avatar',...]]
+        // });
+    }
+
+    /**
+     * 安装后：声明式注册本插件的页面菜单 / 按钮权限 / 配置组。
+     * 基座在本钩子之前已生成「管理入口」顶级菜单，parent_code 可安全引用它。
+     */
+    public function afterInstall(array $plugin = []): void
+    {
+        $this->register();
+    }
+
+    /**
+     * 启用后：重复调用是必要的（自建插件不跑 install.sql、禁用后重新启用也要能补登记），
+     * PluginRegistrar 按 code / slug 幂等，字段无变化时不写库、不清缓存。
+     */
+    public function afterEnable(array $plugin = []): void
+    {
+        $this->register();
+    }
+
+    /** 升级后：新接口带来的新 slug 要及时补上，否则非超管调用直接 403 */
+    public function afterUpgrade(array $plugin = []): void
+    {
+        $this->register();
+    }
+
+    /**
+     * 业务表数据放 install.sql，其余（菜单 / 权限 / 配置 / 小部件）一律在此声明。
+     *
+     * 按钮权限不写清单：#[Permission] 注解就是唯一事实来源，由扫描器派生。
+     * 顺序不能颠倒——按钮只挂到已经存在的页面上，页面还没声明就先跑同步，
+     * 所有 slug 都会以「未挂页面」进报告而不落库。
+     */
+    protected function register(): void
+    {
+        // \app\basic\PluginRegistrar::menu([
+        //     'app_name'    => '{{name}}',
+        //     'name'        => '示例页面',
+        //     'code'        => '{{name}}:demo',
+        //     'parent_code' => \app\service\PluginManager::entryCode('{{name}}'),
+        //     'type'        => 2,
+        //     'path'        => '/demo',              // 相对父级，MenuProcessor 会拼成完整路径
+        //     'component'   => 'demo/index',         // 映射 src/views{component}.vue
+        //     'icon'        => 'ri:apps-line',
+        //     'sort'        => 10,
+        // ]);
+        // \app\basic\PluginRegistrar::syncPermissionsFromControllers('{{name}}', [__DIR__ . '/app/controller']);
+    }
+
+    /** 声明备份 restore.sql 需要包含的插件业务表。 */
+    public function backupTables(array $plugin = []): array
+    {
+        return [];
+    }
+}

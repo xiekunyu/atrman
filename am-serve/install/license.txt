@@ -1,0 +1,47 @@
+MIT License
+
+Copyright (c) 2026 Atrman and contributors (see https://gitee.com/raingad/atrman)
+Copyright (c) 2021 walkor<walkor@workerman.net> and contributors (see https://github.com/walkor/webman/contributors)
+
+Atrman is derived from Webman (https://github.com/walkor/webman), which is
+licensed under the MIT License.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+
+MIT 许可证
+
+版权所有 (c) 2026 Atrman 及贡献者（参见 https://gitee.com/raingad/atrman）
+版权所有 (c) 2021 walkor<walkor@workerman.net> 及贡献者（参见 https://github.com/walkor/webman/contributors）
+
+Atrman 衍生自 Webman（https://github.com/walkor/webman），Webman 采用 MIT 许可证。
+
+特此免费授予获得本软件及相关文档文件（以下简称"软件"）副本的任何人，
+以不受限制地处理本软件的权利，包括但不限于使用、复制、修改、合并、
+发布、分发、再许可和/或出售本软件副本的权利，并允许获得本软件的人
+行使上述权利，但须符合以下条件：
+
+上述版权声明和本许可声明应包含在本软件的所有副本或实质性部分中。
+
+本软件按"原样"提供，不作任何明示或暗示的保证，
+包括但不限于对适销性、特定用途适用性和非侵权性的保证。
+在任何情况下，作者或版权持有人均不对任何索赔、损害或其他责任负责，
+无论该责任系基于合同、侵权或其他原因产生，亦无论其是否因本软件
+或本软件的使用或其他交易而引起、出自或与本软件有关。
