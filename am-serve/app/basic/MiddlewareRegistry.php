@@ -30,6 +30,7 @@ class MiddlewareRegistry
      */
     public static function add(string $when, callable $middleware, int $priority = 0, string $owner = ''): void
     {
+        RegistryGuard::assertWritable(self::class, 'add');
         $type = match ($when) {
             'before:request' => 'before',
             'after:response' => 'after',

@@ -42,7 +42,7 @@ php start.php start          # Linux / macOS（生产加 -d）
 
 默认监听 `:8787`，首次访问由**安装向导**完成初始化（环境检测 → 建库建表 → 写 `.env` → 建管理员），不要手动改 `.env` 或导入 SQL。
 
-环境要求：PHP ≥ 8.4（`pdo_mysql` `redis` `openssl` `zip` `gd` `fileinfo`）、MySQL ≥ 8.0、Redis ≥ 5.0。
+环境要求：PHP ≥ 8.2（`pdo_mysql` `redis` `openssl` `zip` `gd` `fileinfo`）、MySQL ≥ 8.0、Redis ≥ 5.0。
 
 ## 注意事项
 

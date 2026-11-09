@@ -22,6 +22,9 @@ class Plugin extends BasePlugin
     /**
      * 运行时装配：每个进程启动都会执行，适合做静态注册。
      * 例：为“人/群”等非默认主体注册身份解析器（会员中心/IM 等按需实现）。
+     *
+     * 红线：注册只能写在这里。进程内备忘统一用 app\cache\TtlMemo，
+     * 禁止裸静态数组、禁止缓存请求/用户态。详见《开发规范》2.5.2.1。
      */
     public function boot(array $plugin = []): void
     {

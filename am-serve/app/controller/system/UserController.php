@@ -122,7 +122,7 @@ class UserController extends BaseController
 
         // 行政级别：同级或更高级别的账号详情不可读（与 update/delete/editPass 同口径，
         // 否则仅有 system:user:read 的账号能逐个 id 摸出所有人的角色与部门）
-        $this->assertCanManage($this->userLevel((int) $id));
+        $this->assertCanManage($this->userLevel((int) $id), (int) $id);
 
         $data = $info->hidden(['password','salt'])->toArray();
         $roles = $info->roles;
@@ -225,7 +225,7 @@ class UserController extends BaseController
         }
 
         // 行政级别：只能操作有效级别严格低于自己的账号
-        $this->assertCanManage($this->userLevel((int) $id));
+        $this->assertCanManage($this->userLevel((int) $id), (int) $id);
 
         // 主体标识与登录轨迹由服务端生成，绝不允许前端回传覆盖
         $data = $this->stripServerFields($request->post(), self::SERVER_OWNED_FIELDS);
@@ -358,7 +358,7 @@ class UserController extends BaseController
 
         // 行政级别：批量操作目标须严格低于自己
         foreach ($userIds as $uid) {
-            $this->assertCanManage($this->userLevel((int) $uid));
+            $this->assertCanManage($this->userLevel((int) $uid), (int) $uid);
         }
 
         if ($type === 'dept') {
@@ -471,7 +471,7 @@ class UserController extends BaseController
         }
 
         // 行政级别
-        $this->assertCanManage($this->userLevel((int) $id));
+        $this->assertCanManage($this->userLevel((int) $id), (int) $id);
 
         $data = $request->post();
 
@@ -504,13 +504,18 @@ class UserController extends BaseController
             return warning('参数错误');
         }
 
+        // 禁止自删
+        if ((int)$id === currentUserId()) {
+            return warning('不能删除自己的账号');
+        }
+
         $info = $this->model->findOrEmpty($id);
         if (!$info) {
             return warning('用户不存在');
         }
 
         // 行政级别
-        $this->assertCanManage($this->userLevel((int) $id));
+        $this->assertCanManage($this->userLevel((int) $id), (int) $id);
 
         // 删除前捕获 sid，供删除事件同步下游（如会员中心软删对应会员行）
         $sid = (string)$info->sid;
@@ -541,13 +546,18 @@ class UserController extends BaseController
         if (empty($ids)) {
             return warning('参数错误');
         }
+        $ids = array_map('intval', (array)$ids);
+        // 禁止批量包含当前账号
+        if (in_array(currentUserId(), $ids, true)) {
+            return warning('批量列表中包含当前登录账号');
+        }
         $list = $this->model->whereIn('id', $ids)->select();
         if ($list->count() !== count($ids)) {
             return warning('部分用户不存在');
         }
         // 行政级别：逐个校验
         foreach ($ids as $uid) {
-            $this->assertCanManage($this->userLevel((int) $uid));
+            $this->assertCanManage($this->userLevel((int) $uid), (int) $uid);
         }
         // 删除前采集 id=>sid，事务提交后逐条发删除事件（载荷与 user.created 同构）
         $sidMap = $this->model->whereIn('id', $ids)->column('sid', 'id');
@@ -580,6 +590,12 @@ class UserController extends BaseController
         if (empty($id) || '' === $status) {
             return warning('参数错误');
         }
+        $id = (int)$id;
+
+        // 禁止自禁
+        if ($id === currentUserId() && (int)$status !== 1) {
+            return warning('不能禁用自己的账号');
+        }
 
         $info = $this->model->findOrEmpty($id);
         if (!$info) {
@@ -587,7 +603,7 @@ class UserController extends BaseController
         }
 
         // 行政级别
-        $this->assertCanManage($this->userLevel((int) $id));
+        $this->assertCanManage($this->userLevel($id), $id);
         $info->status = $status;
         $result = $info->save();
         if (!$result) {

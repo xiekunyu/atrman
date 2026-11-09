@@ -17,8 +17,8 @@ use support\Log;
  *   保证基座行为不受影响。
  *
  * 接管点（默认实现类）统一声明在 config/plugin_extend.php 的 providers 列表，
- * 首次使用时懒加载。进程级静态注册：插件 bind/extend 一律写在 boot()，并传 owner=插件名
- * （owner 为空的注册会被拒绝——匿名注册无法随插件禁用/卸载清理）。
+ * 由 PluginBootstrapper 在启动阶段 warmProviders() 预热。插件 bind/extend 一律写在 boot()
+ * 并传 owner=插件名（匿名注册会被拒绝），请求期写注册由 RegistryGuard 在 debug 模式下拦截。
  */
 class ServiceRegistry
 {
@@ -41,6 +41,7 @@ class ServiceRegistry
      */
     public static function provide(string $providerClass): void
     {
+        RegistryGuard::assertWritable(self::class, 'provide');
         if (!class_exists($providerClass)
             || !is_subclass_of($providerClass, ServiceProviderInterface::class)
             || $providerClass::KEY === '') {
@@ -66,6 +67,7 @@ class ServiceRegistry
      */
     public static function bind(string $key, string $implClass, int $priority = 0, string $owner = ''): void
     {
+        RegistryGuard::assertWritable(self::class, 'bind');
         if (self::rejectAnonymous($key, 'bind', $owner)) {
             return;
         }
@@ -88,6 +90,7 @@ class ServiceRegistry
      */
     public static function extend(string $key, callable $decorator, int $priority = 0, string $owner = ''): void
     {
+        RegistryGuard::assertWritable(self::class, 'extend');
         if (self::rejectAnonymous($key, 'extend', $owner)) {
             return;
         }
@@ -214,6 +217,16 @@ class ServiceRegistry
         foreach ((array)config('plugin_extend.providers', []) as $providerClass) {
             self::provide($providerClass);
         }
+    }
+
+    /**
+     * 启动期预热：加载 config/plugin_extend.php 声明的接管点。
+     * 由 PluginBootstrapper 在 boot 阶段调用，把默认实现登记移出请求期
+     * （请求期 make() 内若触发 provide() 会撞 RegistryGuard 断言）。
+     */
+    public static function warmProviders(): void
+    {
+        self::ensureProviders();
     }
 
     /** 特性开关（config/plugin_extend.php；非 webman 环境视为开启，便于脚本校验） */

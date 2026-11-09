@@ -157,9 +157,17 @@ abstract class BaseController
     
     /**
      * 行政级别：只能操作严格低于自己级别的目标；超管例外
+     *
+     * 额外硬约束：
+     *   - 任何操作者（包括另一个超管）都不能对超管对象本身做 delete / disable / reassign 这类破坏性操作，
+     *     靠 targetLevel 比较无法覆盖"超管互杀"，这里兜一次，具体操作点再配合 currentUserId === $id 双保险。
      */
-    protected function assertCanManage(int $targetLevel): void
+    protected function assertCanManage(int $targetLevel, ?int $targetUserId = null): void
     {
+        // 超管保护：即使当前操作者也是超管，也不能动另一个超管
+        if ($targetUserId !== null && isSuperAdmin($targetUserId)) {
+            throw new ApiException('超级管理员账号受系统保护，不可操作');
+        }
         if (isSuperAdmin()) {
             return;
         }

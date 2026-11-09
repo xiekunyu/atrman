@@ -198,8 +198,10 @@
     try {
       const info: any = await pluginApi.read(Number(props.plugin.id))
       const manifest = info?.manifest || {}
-      form.entry = String(info?.entry || manifest.entry || '')
-      form.manage_entry = String(info?.manage_entry || manifest.manage_entry || '')
+      // 入口未配置时按双入口约定给默认值（/app/{name}、/app/{name}/manage），仍可手动修改或清空
+      const pluginName = String(info?.name || props.plugin?.name || '')
+      form.entry =pluginName ? `/app/${pluginName}` : '';
+      form.manage_entry = pluginName ? `/app/${pluginName}/manage` : '';
       form.is_core = Number(info?.is_core ?? manifest.is_core ?? 0)
       form.version = String(info?.version || manifest.version || '1.0.0')
       const requires = manifest.composer?.require || {}

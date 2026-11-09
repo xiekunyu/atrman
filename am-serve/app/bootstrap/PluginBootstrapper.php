@@ -18,6 +18,10 @@ class PluginBootstrapper implements Bootstrap
 {
     public static function start(?Worker $worker)
     {
+        // 先预热基座接管点默认实现：把 config/plugin_extend.php 的 provide() 登记留在启动阶段，
+        // 否则首次请求 make() 时的懒加载会撞 RegistryGuard 的请求期只读断言
+        \app\basic\ServiceRegistry::warmProviders();
+
         // 基座内置扩展通道先于插件 boot 注册（每进程一次，内部幂等；受 push_enabled 开关控制）
         \app\service\PushService::registerAsChannel();
         PluginManager::bootPlugins();
@@ -46,5 +50,8 @@ class PluginBootstrapper implements Bootstrap
             },
             'base'
         );
+
+        // 启动期注册结束；此后 Registry 进入只读阶段（debug 模式违规变异抛 LogicException）
+        \app\basic\RegistryGuard::enterRequestPhase();
     }
 }

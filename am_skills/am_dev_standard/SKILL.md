@@ -7,7 +7,7 @@ description: Atrman 统一开发规范（am-serve 后端 / am-web 前端，插�
 
 本 skill 是根目录《开发规范.md》（v1.0，2026-10-05）的执行版速查。完整代码模板以源文档为准：`开发规范.md`（仓库根目录）。
 
-适用范围：**基座核心** `am-serve`（Webman/PHP ≥8.4 + ThinkORM + MySQL + Redis + JWT）与 `am-web`（Vue3 + TS + Vite + Element Plus + Pinia）。**插件（[[am_plugin_dev]]）的业务代码同样按本规范写**——分层、CRUD 约定、时间字段、响应体、建表、前端 API/页面套路全部适用，差异只有命名空间、路由前缀、权限 slug 首段、表名前缀和注册方式，见 am_plugin_dev 的差异对照表。
+适用范围：**基座核心** `am-serve`（Webman/PHP ≥8.2 + ThinkORM + MySQL + Redis + JWT）与 `am-web`（Vue3 + TS + Vite + Element Plus + Pinia）。**插件（[[am_plugin_dev]]）的业务代码同样按本规范写**——分层、CRUD 约定、时间字段、响应体、建表、前端 API/页面套路全部适用，差异只有命名空间、路由前缀、权限 slug 首段、表名前缀和注册方式，见 am_plugin_dev 的差异对照表。
 
 ## 新增一个系统模块的固定顺序
 
@@ -53,7 +53,8 @@ description: Atrman 统一开发规范（am-serve 后端 / am-web 前端，插�
 
 ### Service / Interface / Queue
 
-- Service 要**同时满足**：2+ 处复用、逻辑独立、可能跨模块才抽；简单 CRUD 留在控制器，禁止过度设计。命名 `{Name}Service.php`，静态方法为主，统一返回 `['success'=>bool,'message'=>string,'data'=>mixed]`。
+- Service 要**同时满足**：2+ 处复用、逻辑独立、可能跨模块才抽；简单 CRUD 留在控制器，禁止过度设计。命名 `{Name}Service.php`，统一返回 `['success'=>bool,'message'=>string,'data'=>mixed]`。
+- **静态状态红线**：Service 可以用 static 门面，但方法必须无状态——禁止静态属性/函数内 `static $var` 存请求、用户、token 态（请求态走 `$request->动态属性`、控制器实例属性、`Webman\Context`）；进程内缓存统一用 `app\cache\TtlMemo`（TTL+cap+flush，禁止裸静态数组）；Registry 只在 `boot()` 写、请求期只读（`RegistryGuard` debug 拦截）。
 - 扩展点契约放 `app/interface/{Name}Interface.php`，完整 PHPDoc。
 - 队列消费者放 `app/queue/{Name}Job.php`（implements `Webman\RedisQueue\Consumer`），任务必须**幂等**（可能重试）、catch 全部异常；`Client::send($queue, $data, $delay)` 投递。实时/需同步返回的场景不用队列。
 
@@ -102,4 +103,5 @@ description: Atrman 统一开发规范（am-serve 后端 / am-web 前端，插�
 4. 多表写入是否包事务、删除是否查关联、内置数据是否拦删；
 5. 改用户/角色/菜单/字典后是否清对应缓存；
 6. 简单 CRUD 是否被过度抽成 Service；队列任务是否幂等；
-7. 前端 API 方法名是否符合约定（列表 `list`）、物理外键是否存在。
+7. 前端 API 方法名是否符合约定（列表 `list`）、物理外键是否存在；
+8. 破坏性操作（删除/批量删除/禁用/改密）是否挡了当前账号自操作（`currentUserId()` 比对）、是否经 `assertCanManage($level, $targetId)` 超管硬保护。

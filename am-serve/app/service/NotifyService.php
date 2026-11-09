@@ -3,6 +3,7 @@
 namespace app\service;
 
 use app\basic\EventRegistry;
+use app\basic\RegistryGuard;
 use app\model\notify\NotifyLog;
 use app\model\notify\NotifyMessage;
 use app\model\notify\NotifyPreference;
@@ -45,6 +46,7 @@ class NotifyService
      */
     public static function register(string $type, callable $sender, ?callable $configResolver = null, bool $skipPreference = false, string $owner = ''): void
     {
+        RegistryGuard::assertWritable(self::class, 'register');
         self::$drivers[$type] = [
             'sender' => $sender,
             'config' => $configResolver,

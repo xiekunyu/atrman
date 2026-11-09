@@ -81,7 +81,11 @@ class CoreUpgradeService
     /** 升级配置中本版尚未实现的键（出现即显式提示操作者，绝不静默丢弃） */
     private const UNSUPPORTED_CONFIG = ['pre_hook', 'post_hook', 'env_require'];
 
-    /** 当前进程持有的锁令牌（释放/续期时比对，避免超时后误操作他人锁） */
+    /**
+     * 当前进程持有的锁令牌（释放/续期时比对，避免超时后误操作他人锁）。
+     * 进程内单飞状态，仅在 redis-queue 消费进程的串行模型下安全；跨进程权威互斥是 Redis NX 锁，
+     * 本属性只是本进程续期/释放的令牌缓存，run() 入口有串行断言兜底。
+     */
     private static string $lockToken = '';
 
     /** 最近一次锁续期时间戳（心跳节流用） */
@@ -373,6 +377,11 @@ class CoreUpgradeService
         $channel = self::channel($jobId);
         $workDir = runtime_path() . '/core_upgrade/' . $jobId;
         $preDir = $workDir . '/' . self::PRE_DIR;
+        // 串行消费断言：静态 $lockToken 是进程内单飞状态，依赖 redis-queue 消费者串行处理。
+        // 若消费模型变为并发/协程，本断言会先炸——届时把令牌改为随 job 载荷传递（payload 已带 lock_token）即可去掉静态属性。
+        if (self::$lockToken !== '') {
+            throw new \LogicException('CoreUpgradeService 出现并发 run()：队列消费已非串行，须先把 lockToken 迁入任务上下文');
+        }
         self::$lockToken = (string)($payload['lock_token'] ?? '');
         self::$lastTouch = time();
         $backupId = 0;

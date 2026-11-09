@@ -64,6 +64,7 @@ class AdapterRegistry
         ?callable $configResolver = null,
         string $owner = ''
     ): void {
+        RegistryGuard::assertWritable(self::class, 'register');
         // 内置/基座注册的驱动（owner 为空串）是全站共用的事实来源：插件不得改判同名键。
         // 否则后启用的插件可以把 'oss'/'local' 换成自己的实现，接管其它应用与基座的上传落盘。
         // 命中只忽略并留日志：抛异常会让整个插件 boot 失败，代价与风险不成比例。

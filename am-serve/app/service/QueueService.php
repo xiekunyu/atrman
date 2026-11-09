@@ -2,6 +2,7 @@
 
 namespace app\service;
 
+use app\basic\RegistryGuard;
 use support\Log;
 use Webman\RedisQueue\Client as RedisQueueClient;
 
@@ -57,6 +58,7 @@ class QueueService
      */
     public static function consume(string $handler, callable $jobHandler, string $owner = ''): void
     {
+        RegistryGuard::assertWritable(self::class, 'consume');
         // 基座注册的 handler（owner 空串）不允许被插件改判：信封队列按名转发，
         // 后启用的插件同名注册等于把别人的异步任务接到自己代码里执行。
         if ($owner !== '' && isset(self::$handlers[$handler]) && (self::$handlers[$handler]['owner'] ?? '') === '') {

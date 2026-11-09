@@ -22,34 +22,31 @@ class ReflectionCache
      */
     private const MEMO_TTL = 5;
 
-    /** @var array<string, array<string, array{expire: int, value: array}>> [类别 => [键 => 值]] */
-    private static array $memo = [];
+    /** 键空间为路由级 controller/action（代码级有限枚举），cap 仅作内存兜底 */
+    private const MEMO_CAP = 1024;
+
+    private static ?TtlMemo $memo = null;
+
+    private static function memo(): TtlMemo
+    {
+        return self::$memo ??= new TtlMemo(self::MEMO_CAP, self::MEMO_TTL);
+    }
 
     public static function getNoNeedLogin(string $controller): array
     {
-        return self::remember('no_need', $controller, fn() => self::readNoNeedLogin($controller));
+        return self::memo()->remember('no_need' . "\0" . $controller, fn() => self::readNoNeedLogin($controller));
     }
 
     public static function getPermissionAttributes(string $controller, string $action): array
     {
-        return self::remember('permission', $controller . '::' . $action, fn() => self::readPermission($controller, $action));
+        $key = 'permission' . "\0" . $controller . '::' . $action;
+        return self::memo()->remember($key, fn() => self::readPermission($controller, $action));
     }
 
     /** 代码或插件启停变更后重置本进程（其余 worker 由 MEMO_TTL 兜底）。 */
     public static function clear(): void
     {
-        self::$memo = [];
-    }
-
-    private static function remember(string $bucket, string $key, callable $read): array
-    {
-        $hit = self::$memo[$bucket][$key] ?? null;
-        if ($hit !== null && $hit['expire'] > time()) {
-            return $hit['value'];
-        }
-        $value = $read();
-        self::$memo[$bucket][$key] = ['expire' => time() + self::MEMO_TTL, 'value' => $value];
-        return $value;
+        self::$memo?->flush();
     }
 
     private static function readNoNeedLogin(string $controller): array

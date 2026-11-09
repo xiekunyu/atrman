@@ -664,6 +664,7 @@ class BackupService
                 'is_lock' => 1,
                 'skip_size_check' => true,
                 'dirname' => 'backup',
+                'type_dir' => '', // 备份固定目录，不追加文件类型层
                 'delete_source' => true,
                 'extends' => [
                     'source' => 'system_backup',

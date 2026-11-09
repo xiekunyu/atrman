@@ -1,6 +1,7 @@
 <?php
 namespace app\middleware;
 
+use app\cache\TtlMemo;
 use app\model\plugin\App as Plugin;
 use app\service\StoreService;
 use Webman\MiddlewareInterface;
@@ -13,17 +14,25 @@ class PluginStatusCheck implements MiddlewareInterface
      *  基座变更插件状态时会主动 flush 当前进程缓存 */
     protected const CACHE_TTL = 5;
 
-    /** @var array<string, array{expire:int, plugin:Plugin}> 仅缓存"启用中"正向结果；未启用不缓存，保证启用后立即放行 */
-    protected static array $statusCache = [];
+    /** 键为正则约束的插件名（基数=已装插件数），cap 仅作内存兜底 */
+    private const CACHE_CAP = 128;
+
+    /** 仅缓存"启用中"正向结果；未启用不缓存，保证启用后立即放行 */
+    private static ?TtlMemo $statusCache = null;
+
+    private static function statusMemo(): TtlMemo
+    {
+        return self::$statusCache ??= new TtlMemo(self::CACHE_CAP, self::CACHE_TTL);
+    }
 
     /** 清理插件状态缓存（cache_manage.groups.runtime 的 flush 项，插件状态变更与系统还原后触发） */
     public static function flush(?string $pluginName = null): void
     {
         if ($pluginName === null) {
-            self::$statusCache = [];
+            self::$statusCache?->flush();
             return;
         }
-        unset(self::$statusCache[$pluginName]);
+        self::$statusCache?->forget($pluginName);
     }
 
     public function process(Request $request, callable $handler): Response
@@ -33,17 +42,14 @@ class PluginStatusCheck implements MiddlewareInterface
             return $handler($request);
         }
 
-        $now = time();
-        $cached = self::$statusCache[$pluginName] ?? null;
-        if ($cached && $cached['expire'] > $now) {
-            $plugin = $cached['plugin'];
-        } else {
-            $plugin = Plugin::where('name', $pluginName)->where('status', 1)->findOrEmpty();
-            if ($plugin->isEmpty()) {
-                unset(self::$statusCache[$pluginName]);
-                return response('Not Found', 404);
-            }
-            self::$statusCache[$pluginName] = ['expire' => $now + self::CACHE_TTL, 'plugin' => $plugin];
+        // 仅缓存"启用中"正向结果；loader 返回 null 代表未启用/不存在，随后立刻移出 memo
+        $plugin = self::statusMemo()->remember($pluginName, function () use ($pluginName) {
+            $row = Plugin::where('name', $pluginName)->where('status', 1)->findOrEmpty();
+            return $row->isEmpty() ? null : $row;
+        });
+        if ($plugin === null) {
+            self::statusMemo()->forget($pluginName);
+            return response('Not Found', 404);
         }
 
         // 付费应用授权心跳：每周一次，用户打开应用时触发，异步队列执行不阻塞请求

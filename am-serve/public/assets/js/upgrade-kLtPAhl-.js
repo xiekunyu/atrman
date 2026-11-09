@@ -1,0 +1,1 @@
+import{a as s}from"./index-BY0tL5wz.js";const e={plan:()=>s.get({url:"/plugin/store/system-update/plan",showErrorMessage:!1}),execute:e=>s.post({url:"/plugin/store/system-update/execute",data:{strategy:e}}),status:e=>s.get({url:"/plugin/store/system-update/status",params:{job_id:e},showErrorMessage:!1})};export{e as u};

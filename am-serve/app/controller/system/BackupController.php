@@ -247,6 +247,7 @@ class BackupController extends BaseController
                 'is_lock' => 1,
                 'skip_size_check' => true,
                 'dirname' => 'backup',
+                'type_dir' => '', // 备份固定目录，不追加文件类型层
                 'extends' => [
                     'source' => 'system_backup_upload',
                 ],

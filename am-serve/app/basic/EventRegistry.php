@@ -32,6 +32,7 @@ class EventRegistry
      */
     public static function listen(string $event, callable|array $listener, int $priority = 0, string $owner = ''): void
     {
+        RegistryGuard::assertWritable(self::class, 'listen');
         self::$listeners[$event][] = [
             'listener' => $listener,
             'priority' => $priority,

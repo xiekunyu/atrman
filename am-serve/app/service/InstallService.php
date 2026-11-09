@@ -108,11 +108,11 @@ class InstallService
 
         // ── PHP 版本 ──
         $phpVersion = PHP_VERSION;
-        $phpOk = version_compare($phpVersion, '8.4.0', '>=');
+        $phpOk = version_compare($phpVersion, '8.2.0', '>=');
         $items[] = [
             'category' => 'php_version',
             'name' => 'PHP 版本',
-            'required' => '>= 8.4',
+            'required' => '>= 8.2',
             'current' => $phpVersion,
             'passed' => $phpOk,
             'level' => 'required',
@@ -562,6 +562,9 @@ APP_INSTALL = true
 
 # 后台入口文件（安装生成的安全入口名，如 manage_XXXX.html；会员中心管理员登录后据此拼域名直达后台；默认 index.html）
 APP_ENTRY_FILE = {$entryFile}
+
+# HTTP worker 数：留空自动取 min(CPU 核数, 4)；限核容器/小内存机建议显式写 1~2，改完重启
+WORKER_COUNT =
 
 # 数据库配置
 DB_TYPE = mysql

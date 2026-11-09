@@ -8,4 +8,7 @@ services:
       - "./:/app"
     ports:
       - "8787:8787"
+    # 限核容器建议显式指定 worker 数：容器内 cpu_count() 读到的是宿主机核数（默认 min(cpu_count(),4)）
+    # environment:
+    #   WORKER_COUNT: "2"
     command: ["php", "start.php", "start" ]

@@ -18,11 +18,19 @@ use app\process\Http;
 
 global $argv;
 
+// Worker 进程数：1panel / 低规格容器里 cpu_count() 可能只有 1，乘 4 直接 OOM。
+// 封顶 4：1 vCPU × 4 = 4 worker 抢单核会上下文切换，4 vCPU × 4 = 16 worker 也没意义。
+// 要更多？改 .env 里的 WORKER_COUNT 或用 production.php 覆盖。
+$workerCount = (int)env('WORKER_COUNT', 0);
+if ($workerCount <= 0) {
+    $workerCount = min(cpu_count(), 4);
+}
+
 return [
     'webman' => [
         'handler' => Http::class,
         'listen' => 'http://0.0.0.0:8787',
-        'count' => cpu_count() * 4,
+        'count' => $workerCount,
         'user' => '',
         'group' => '',
         'reusePort' => false,

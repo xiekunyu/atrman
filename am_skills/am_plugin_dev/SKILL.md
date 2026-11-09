@@ -72,8 +72,9 @@ Atrman 是技术栈中立的后台基座，业务全部以**插件**增量交付
 
 ### Plugin.php 生命周期（继承 `app\basic\BasePlugin`）
 
-- **进程级静态注册（事件、服务接管、适配器、中间件、任务、身份 provider、通道鉴权）一律写 `boot()`**，且每个 worker 都会执行——注册逻辑必须幂等。
+- **进程级静态注册（事件、服务接管、适配器、中间件、任务、身份 provider、通道鉴权）一律写 `boot()`**，且每个 worker 都会执行——注册逻辑必须幂等。请求期禁止调用注册方法，`RegistryGuard` 在 debug 模式下会抛 `LogicException`；唯一请求期合法变异是卸载/禁用路径的 `forgetByOwner`。
 - 每个注册都传 `owner: '{插件名}'`，卸载时基座按 `forgetByOwner` 反向清理。
+- 插件内若需进程内缓存，统一用 `app\cache\TtlMemo`（显式 TTL+容量上限+管理操作 flush），禁止裸写静态数组，禁止缓存请求/用户态。
 - **数据声明（菜单、权限、配置组）写 `afterInstall` 和 `afterEnable` 两个钩子，调同一套方法**——自定义插件创建时不跑 install.sql，启用钩子是开发环境主要注册时机；`afterUpgrade` 也要跑权限同步。
 - `init` 只在 `reload()` 时触发，安装/启用/升级都不调它。
 - 完成注解/权限变更后调 `ReflectionCache::clear()`（尤其 `afterUpgrade`），否则新权限 slug 不生效、非超管 403。
@@ -83,7 +84,10 @@ Atrman 是技术栈中立的后台基座，业务全部以**插件**增量交付
 
 - 业务接口用注解：类级 `#[RouteGroup('/app/{name}')]` + 方法级 `#[Get]`/`#[Post]`，**不要**在方法路径里重复前缀，也不要在 route.php 重复注册。
 - 页面入口 `/app/{name}`、`/app/{name}/manage` 注解生成不出来，必须在 `config/route.php` 手动 `Route::get`。
+- 控制器多了按**鉴权边界**拆目录：`admin/`（RBAC 后台）、`public/`（纯匿名）、`api/` 与 `developer/`（自持验签、绕 AuthCheck）、`widget/`（小部件）；简单插件一个根控制器足矣，目录/前缀/鉴权对照表见 am_doc `plugin/backend/controller.md`。
 - 公开 action 放入 `$noNeedLogin`；后台接口不写白名单，由 AuthCheck + `#[Permission]` 注解拦截。
+- **自持验签链路**（`api/`、`developer/` 目录自己 verify JWT）验签后必须补 `JwtRevoker::isRevoked($extend['jti'] ?? '')`，否则用户登出后旧令牌在过期前仍能打穿（样板：am_store 的 `BaseApiController`/`BaseDeveloperController`）；走全局 AuthCheck 的链路不用管，黑名单统一查。
+- 具体控制器**不加 `final`、也不继承别人的具体控制器**（注解路由会被继承导致重复注册）；复用骨架只继承抽象基类（`BaseController`/`BaseApiController`/`BaseDeveloperController`）。
 - 按钮权限在控制器方法标 `#[Permission(title, slug)]`，安装/启用时 `syncPermissionsFromControllers` 自动扫描落库，不要手写权限 INSERT。
 - **响应体用 helper**：`success()`/`warning()`/`error()`，键名是 **`msg` 不是 `message`**（前端拦截器只读 msg）。`am_demo` 的 `info` 手写 `message` 是反面教材，别照抄。
 - BaseController 提供 `$this->userInfo`、`validate()`、`getList()`、`search()`、`transaction()`、`assertCanManage()` 等。

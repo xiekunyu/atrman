@@ -5,12 +5,30 @@ Date: 2021-02-22 */
 
 namespace app\utils;
 
+use app\cache\TtlMemo;
+
 class Str{
-    protected static $snakeCache = [];
+    /** 字符串转换备忘：纯函数结果不过期（ttl=0），仅做容量上限；LRU 淘汰只损失一次重算，无正确性风险 */
+    private static ?TtlMemo $snakeCache = null;
 
-    protected static $camelCache = [];
+    private static ?TtlMemo $camelCache = null;
 
-    protected static $studlyCache = [];
+    private static ?TtlMemo $studlyCache = null;
+
+    private static function snakeMemo(): TtlMemo
+    {
+        return self::$snakeCache ??= new TtlMemo(512, 0);
+    }
+
+    private static function camelMemo(): TtlMemo
+    {
+        return self::$camelCache ??= new TtlMemo(512, 0);
+    }
+
+    private static function studlyMemo(): TtlMemo
+    {
+        return self::$studlyCache ??= new TtlMemo(512, 0);
+    }
 
     /**
      * 检查字符串中是否包含某些字符串
@@ -143,19 +161,16 @@ class Str{
      */
     public static function snake($value, $delimiter = '_')
     {
-        $key = $value;
+        // \0 不会出现在正常输入中，用来压平原二维缓存键（原值 + 分隔符）
+        $key = $value . "\0" . $delimiter;
 
-        if (isset(static::$snakeCache[$key][$delimiter])) {
-            return static::$snakeCache[$key][$delimiter];
-        }
-
-        if (!ctype_lower($value)) {
-            $value = preg_replace('/\s+/u', '', $value);
-
-            $value = static::lower(preg_replace('/(.)(?=[A-Z])/u', '$1' . $delimiter, $value));
-        }
-
-        return static::$snakeCache[$key][$delimiter] = $value;
+        return self::snakeMemo()->remember($key, function () use ($value, $delimiter) {
+            if (ctype_lower($value)) {
+                return $value;
+            }
+            $snake = preg_replace('/\s+/u', '', $value);
+            return static::lower(preg_replace('/(.)(?=[A-Z])/u', '$1' . $delimiter, $snake));
+        });
     }
 
     /**
@@ -166,11 +181,9 @@ class Str{
      */
     public static function camel($value)
     {
-        if (isset(static::$camelCache[$value])) {
-            return static::$camelCache[$value];
-        }
-
-        return static::$camelCache[$value] = lcfirst(static::studly($value));
+        return self::camelMemo()->remember($value, function () use ($value) {
+            return lcfirst(static::studly($value));
+        });
     }
 
     /**
@@ -181,15 +194,9 @@ class Str{
      */
     public static function studly($value)
     {
-        $key = $value;
-
-        if (isset(static::$studlyCache[$key])) {
-            return static::$studlyCache[$key];
-        }
-
-        $value = ucwords(str_replace(['-', '_'], ' ', $value));
-
-        return static::$studlyCache[$key] = str_replace(' ', '', $value);
+        return self::studlyMemo()->remember($value, function () use ($value) {
+            return str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $value)));
+        });
     }
 
     /**

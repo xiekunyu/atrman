@@ -318,6 +318,8 @@ Route::get('/app/am_demo/manage', [AppController::class, 'manage']); // 管理�
 - `/app/{name}` 是页面入口与业务接口的统一 url 前缀；`plugin/{name}/...` 是物理目录路径（静态资源经 static 映射以 `/app/{name}/assets/...` 访问），**不要**当接口前缀用；
 - 管理接口默认需登录（AuthCheck 中间件）；**前台公开接口的方法名必须加入 `$noNeedLogin` 白名单**；
 - 前台「需登录」接口同样先加白名单（绕过 AuthCheck），方法内首行用基座 `MemberAuth` trait 的 `requireMember()` 自持鉴权，匿名访问返回统一业务形 401（HTTP 401，`{code:401,...}`），交由前端 `<RequireLogin>` 门控；不要在前台控制器里自建登录校验；
+- 控制器多了按**鉴权边界**拆目录：`admin/`（后台 RBAC）、`public/`（纯匿名）、`api/` 与 `developer/`（自持验签、绕 AuthCheck）、`widget/`（小部件）；简单插件一个根控制器足矣。具体控制器**不加 `final`、也不继承别人的具体控制器**，复用只继承抽象基类；
+- 自持验签链路（`api/`、`developer/` 目录自己 `JwtToken::verify()`）验签后必须补查 `JwtRevoker::isRevoked($extend['jti'] ?? '')`，否则用户登出后旧 JWT 在过期前仍能打穿；走全局 AuthCheck 的链路黑名单已统一查，不用自己补；
 - 完整后端规范（路由/注解/生命周期/安装升级）以《插件开发文档.md》§2–§3 为准，三种鉴权姿势与 `MemberAuth` 方法表见《插件开发文档.md》§11.10、《后端插件开发文档.md》§5.5。
 
 ```php
@@ -390,6 +392,8 @@ Bridge 是基座对所有插件形态（脚手架 / HTML / React 等）统一暴
 | 插件目录 `pnpm build` 类型校验失败（element-plus 等） | 装配时必须携带 `pnpm-lock.yaml`，缺失导致版本漂移；重新装配并保留 lockfile |
 | `auto-imports.d.ts` 相关报错 | 该文件为构建自动生成（已 gitignore），跑一次 `pnpm dev` 或 `pnpm build` 即生成 |
 | 构建后基座页面白屏 / 404 | 检查 `config/route.php` 是否注册了两个无尾斜杠页面入口；检查 manifest `entry/manage_entry` 是否为 `/app/{name}` 与 `/app/{name}/manage` |
+| 其他标签登出后，本插件还显示在线 | 跨标签同步只靠 `atrman:session` 的 storage 事件：是否用了脚手架内置的 `setupSessionSync()` 监听与 `clearSession()` 登出；自建 store、绕开 SDK 就不会收到翻牌广播（同标签内改动不触发 storage 事件是浏览器机制） |
+| 用户登出后旧 token 还能调通接口 | 自持验签链路漏查吊销名单：verify 后补 `JwtRevoker::isRevoked()`，见 §8.2 |
 | 前台接口 401 | 两种含义：① 公开接口的方法名未加入 `$noNeedLogin` 白名单（或改注解后未清反射缓存/重启）；② 姿势②会员接口的正常业务响应——匿名访问 `requireMember()` 即返回业务形 401，前端清会话 + `<RequireLogin>` 翻牌，曾登录时另有防抖通知，**不会**自动整页跳走 |
 | 点登录后停在会员页提示「返回来源应用失败」 | 目标插件被停用/卸载或 manifest 异常，会员端签 ticket 失败；此时可在会员页直接登录，会员内容不受影响。恢复插件后重试即可 |
 | 基座内（qiankun/iframe）点登录后整个框架跳到了插件整页 | 预期行为：同页签闭环是顶层导航，回跳地址只信任服务端 manifest 的 entry，落地为插件独立整页；嵌入态不做保框架改造 |

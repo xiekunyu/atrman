@@ -28,6 +28,7 @@ class TaskRegistry
      */
     public static function schedule(string $name, string $cron, callable $job, string $owner = ''): void
     {
+        RegistryGuard::assertWritable(self::class, 'schedule');
         self::$tasks[] = [
             'name' => $name,
             'cron' => $cron,

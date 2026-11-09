@@ -2,6 +2,7 @@
 
 namespace app\cache;
 
+use app\basic\RegistryGuard;
 use app\exception\ApiException;
 use support\think\Cache;
 
@@ -33,6 +34,7 @@ class CacheManager
      */
     public static function registerPluginDomains(string $owner, array $domains): void
     {
+        RegistryGuard::assertWritable(self::class, 'registerPluginDomains');
         $owner = trim($owner);
         if ($owner === '' || !$domains) {
             return;

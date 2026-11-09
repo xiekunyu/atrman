@@ -106,7 +106,7 @@ class PluginComposerService
             'missing' => $missing,
             'incompatible' => $incompatible,
             'status' => $status,
-            'php_ok' => version_compare(PHP_VERSION, '8.4.0', '>='),
+            'php_ok' => version_compare(PHP_VERSION, '8.2.0', '>='),
             'checked_at' => date('Y-m-d H:i:s'),
         ];
         // 保留历史 last_job，仅覆盖检测字段

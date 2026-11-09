@@ -105,6 +105,13 @@ class UploadService
         array $options = []
     ): File {
         $fileType = getFileType($mainFile['ext'], false);
+        // 按文件类型分目录：{类型}/{日期}；options.type_dir 可覆盖（传 '' 关闭分层，保留旧行为）
+        if (!array_key_exists('type_dir', $options)) {
+            $options['type_dir'] = getFileType($mainFile['ext'], true); // image/voice/video/doc/zip/file
+        }
+        if ($options['type_dir'] !== '') {
+            $config['dirname'] = trim($config['dirname'], '/') . '/' . $options['type_dir'];
+        }
         $isScaleImage = in_array($mainFile['ext'], ['jpg', 'jpeg', 'png', 'gif']);
         if ($isRemote) {
             $result = self::disk($config, false)->uploadServerFile($tempPath);
@@ -267,7 +274,7 @@ class UploadService
     protected static function createThumb(array $mainFile, array $config, string $tempPath): array
     {
         $root = public_path();
-        $thumbDir = '/storage/' . date('Ymd') . '/thumb';
+        $thumbDir = '/storage/image/' . date('Ymd') . '/thumb';
 
         // 确保缩略图目录存在
         if (!is_dir($root . $thumbDir)) {

@@ -12,23 +12,38 @@ use app\exception\ApiException;
 
 class AuthCheck implements MiddlewareInterface
 {
+    /**
+     * 鉴权口径：公开前缀与 $noNeedLogin 放行；其余请求要求合法 JWT + 账号存活；
+     * 带 #[Permission] 的动作再做 slug RBAC，无注解动作登录即可（会员中心自助接口依赖此口径）。
+     * 会员/管理员共用 system_user 与同一 JWT，以 account_type 区分；am_store 的 /api/v1
+     * 与开发者中心绕过本中间件自持鉴权，吊销名单在其基类内补查。
+     *
+     * 公开接口前缀白名单：仅登记「整个前缀 100% 都是公开动作」的路由。
+     * 混合前缀（如 /pub/auth 下 logout 要登录、login 不要）由各控制器 $noNeedLogin 精确放行。
+     */
+    private const PUBLIC_PATH_PREFIXES = [
+        '/api/install',
+        '/app/am_store/public',
+    ];
+
     public function process(Request $request, callable $handler) : Response
     {
-        // 安装路由无需登录（InstallGuard 未生效时的安全兜底）
         $path = '/' . ltrim($request->path(), '/');
-        if (str_starts_with($path, '/api/install/')) {
-            return $handler($request);
+
+        // 1) 公开前缀白名单：已知的门户/安装路由直接短路
+        foreach (self::PUBLIC_PATH_PREFIXES as $prefix) {
+            if (str_starts_with($path, $prefix . '/') || $path === $prefix) {
+                return $handler($request);
+            }
         }
 
-        // 获取控制器哪些方法不需要登录
+        // 2) 控制器自己声明的免登方法（per-method 粒度，覆盖前缀白名单的疏漏）
         $noNeedLogin = ReflectionCache::getNoNeedLogin($request->controller);
-        // 访问的方法需要登录
-        if (in_array($request->action, $noNeedLogin)) {
+        if (in_array($request->action, $noNeedLogin, true)) {
              return $handler($request);
         }
-        // 登录信息检查
-        // 先确认密钥真的装配上了：JWT_ACCESS_KEY 缺失时配置取到 null，用空串密钥签发的令牌
-        // 能被空串密钥验通过，任何登录态校验都会静默放行伪造的超管令牌，这里必须 fail-fast。
+
+        // 3) JWT 密钥有效性：空串密钥签的 token 会被空串密钥验通过，必须 fail-fast
         JwtKeyGuard::assertConfigured();
         $userInfo = getCurrentInfo();
         if ($userInfo === false) {

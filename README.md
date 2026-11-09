@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.0.4-blue.svg) ![PHP](https://img.shields.io/badge/PHP-%3E%3D8.4-777BB4.svg) ![MySQL](https://img.shields.io/badge/MySQL-%3E%3D8.0-4479A1.svg) ![Redis](https://img.shields.io/badge/Redis-%3E%3D5.0-DC382D.svg) ![Webman](https://img.shields.io/badge/Webman-^2.1-00A0E3.svg) ![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D.svg) ![qiankun](https://img.shields.io/badge/qiankun-^2.10-E8443B.svg) ![Element Plus](https://img.shields.io/badge/Element--Plus-^2.11-409EFF.svg) ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20.19.0-339933.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Version](https://img.shields.io/badge/version-1.0.4-blue.svg) ![PHP](https://img.shields.io/badge/PHP-%3E%3D8.2-777BB4.svg) ![MySQL](https://img.shields.io/badge/MySQL-%3E%3D8.0-4479A1.svg) ![Redis](https://img.shields.io/badge/Redis-%3E%3D5.0-DC382D.svg) ![Webman](https://img.shields.io/badge/Webman-^2.1-00A0E3.svg) ![Vue](https://img.shields.io/badge/Vue-3.5-4FC08D.svg) ![qiankun](https://img.shields.io/badge/qiankun-^2.10-E8443B.svg) ![Element Plus](https://img.shields.io/badge/Element--Plus-^2.11-409EFF.svg) ![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20.19.0-339933.svg) ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 **一个主打插件扩展的企业级快速开发框架**
 
@@ -209,7 +209,7 @@ await bridge.invoke('ui.confirm',    { title, message })          // UI 反馈
 
 | 领域 | 选型 |
 | --- | --- |
-| 运行时 | PHP `>= 8.4` |
+| 运行时 | PHP `>= 8.2` |
 | 核心框架 | Webman / Workerman `^2.1`（常驻内存 HTTP 服务） |
 | ORM / 缓存 | ThinkORM（webman/think-orm）+ webman/think-cache + webman/cache |
 | 认证 | tinywan/jwt `^1.11` |
@@ -308,7 +308,7 @@ pnpm build    # 构建并自动回写插件目录
 
 | 环境 | 最低 | 推荐 | 说明 |
 | --- | --- | --- | --- |
-| PHP | ≥ 8.4 | 8.4 | 需 `pdo_mysql` `redis` `openssl` `zip` `gd` `fileinfo` |
+| PHP | ≥ 8.2 | 8.2 | 需 `pdo_mysql` `redis` `openssl` `zip` `gd` `fileinfo` |
 | MySQL | ≥ 8.0 | 8.0+ | 向导可自动建库，表前缀 `am_` |
 | Redis | ≥ 5.0 | 7.x | 缓存 / 会话 / 队列 |
 | Node.js | ≥ 20.19.0 | 20.x LTS | 仅源码开发方式需要 |

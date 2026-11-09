@@ -2,6 +2,7 @@
 
 namespace app\service;
 
+use app\basic\RegistryGuard;
 use app\cache\CacheManager;
 use app\model\system\File;
 use app\model\system\User;
@@ -43,6 +44,7 @@ class IdentityService
      */
     public static function registerProvider(string $type, callable $resolver, string $owner = ''): void
     {
+        RegistryGuard::assertWritable(self::class, 'registerProvider');
         self::$providers[$type] = ['resolver' => $resolver, 'owner' => $owner];
     }
 
@@ -59,6 +61,7 @@ class IdentityService
      */
     public static function registerExtender(callable $extender, string $owner = ''): void
     {
+        RegistryGuard::assertWritable(self::class, 'registerExtender');
         self::$extenders[] = ['extender' => $extender, 'owner' => $owner];
     }
 

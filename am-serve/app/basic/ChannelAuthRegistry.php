@@ -36,6 +36,7 @@ class ChannelAuthRegistry
      */
     public static function authorize(string $pattern, callable $checker, string $owner = ''): void
     {
+        RegistryGuard::assertWritable(self::class, 'authorize');
         // 系统私有用户频道命名空间保留：check() 按注册先后取首个非 null 裁决，
         // 插件若注册 'private-sid_*'（或 '*'）并恒返回 true，等于替所有用户放行他人频道。
         // 需要自建私有频道的插件请用自己的前缀，如 'private-am_im_room_*'。
