@@ -1,14 +1,101 @@
-version: "3"
+# Atrman 基座容器编排
+#
+# 两套 profile，按场景区分，不要同时启动：
+#   开发：docker compose --profile dev up --build
+#         源码 bind mount，MONITOR_FILE_ENABLED=true 改代码自动 reload，依赖本机/容器 Redis
+#   生产：docker compose --profile prod up -d --build
+#         镜像内固化代码，Redis 作为服务编排进来，runtime/storage/secrets 走命名卷持久化
+#
+# 公共前提：同目录存在 .env（镜像本身不含 .env，由 env_file 注入环境变量）。
+
 services:
-  webman:
-    build: .
-    container_name: docker-webman
-    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    container_name: atrman-redis
+    profiles: ["dev", "prod"]
+    command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - "./:/app"
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+
+  # ------------------------------ 生产 profile ------------------------------
+  webman:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: atrman/webman:latest
+    container_name: atrman-webman
+    profiles: ["prod"]
+    env_file: .env
+    environment:
+      # 容器内默认关闭文件监控（镜像代码只读化，监控进程只浪费内存与 inotify）
+      MONITOR_FILE_ENABLED: "false"
+      # 覆盖 .env 里的本机地址，走 compose 内部服务名解析
+      REDIS_HOST: redis
+      # Workerman 自身日志重定向标准流，交 Docker 日志驱动统一收集/轮转
+      WORKERMAN_STDOUT_FILE: /dev/stdout
+      WORKERMAN_LOG_FILE: /dev/stderr
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "8787:8787"
-    # 限核容器建议显式指定 worker 数：容器内 cpu_count() 读到的是宿主机核数（默认 min(cpu_count(),4)）
-    # environment:
-    #   WORKER_COUNT: "2"
-    command: ["php", "start.php", "start" ]
+    volumes:
+      # 持久化运行期数据：日志、缓存、插件备份工作区
+      - runtime-data:/app/runtime
+      # 本地上传附件（tinywan/storage local 驱动根目录）
+      - storage-data:/app/public/storage
+      # 可选：挂载外部密钥目录（当前 .env 注入为主，预留挂载点）
+      - secrets-data:/app/secrets
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 2.0
+    # Workerman 日志已重定向标准流，这里约束 Docker json-file 驱动单文件 10MB、最多 3 份，
+    # 避免长运行容器把宿主磁盘写满（docker logs 的可见范围同样受此轮转限制）
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ------------------------------ 开发 profile ------------------------------
+  webman-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: atrman/webman:dev
+    container_name: atrman-webman-dev
+    profiles: ["dev"]
+    env_file: .env
+    environment:
+      # 开发态显式打开文件监控，宿主改码自动 reload
+      MONITOR_FILE_ENABLED: "true"
+      REDIS_HOST: redis
+      # 与生产 profile 同口径，docker logs 直接可见 Workerman 输出
+      WORKERMAN_STDOUT_FILE: /dev/stdout
+      WORKERMAN_LOG_FILE: /dev/stderr
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8787:8787"
+    volumes:
+      # 整仓 bind mount：含宿主机 vendor（要求宿主先 composer install），改动即时反映
+      - ./:/app
+    command: ["php", "start.php", "start"]
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 2.0
+
+volumes:
+  redis-data:
+  runtime-data:
+  storage-data:
+  secrets-data:

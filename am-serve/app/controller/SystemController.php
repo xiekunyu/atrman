@@ -4,7 +4,9 @@ namespace app\controller;
 
 use support\Request;
 use support\Response;
-use app\service\UploadService;
+use app\exception\ApiException;
+use app\attribute\RateLimit;
+use app\service\storage\UploadService;
 use app\model\system\User;
 use app\model\system\Dept;
 use app\model\system\File;
@@ -114,6 +116,7 @@ class SystemController extends BaseController
 
     // 远程文件下载并上传
     #[Post('/uploadUrl')]
+    #[RateLimit(max: 20, window: 60)]
     public function uploadUrl(Request $request):Response
     {
         try {
@@ -124,11 +127,13 @@ class SystemController extends BaseController
             }
             $path=explode('.',$url);
             $ext=strtolower(end($path));
-            $config=Config::getConfig('upload');
-            $allow=is_array($config['allow_ext']) ? $config['allow_ext'] : json_decode($config['allow_ext'],true);
-            if(!in_array($ext,$allow)){
+            // 白名单 + 硬黑名单统一走 UploadService 唯一出口（保留本站点原文案）
+            try {
+                UploadService::assertExtAllowed($ext);
+            } catch (ApiException $e) {
                 return warning('文件链接格式错误');
             }
+            $config=Config::getConfig('upload');
             // 服务端代取外部资源前先验地址：只允许公网 http(s)，拒绝直连内网 host 与解析到内网的域名。
             // 缺这一道时上面按「最后一个点」取扩展名，http://127.0.0.1:6379/?x.png 就能过白名单。
             // 返回值是已校验的公网 IP，交给下载侧固定连接目标，闭合 DNS 重绑定窗口。
@@ -174,6 +179,7 @@ class SystemController extends BaseController
 
     // 上传文件
     #[Post('/upload')]
+    #[RateLimit(max: 20, window: 60)]
     public function upload(Request $request):Response
     {
         try {
@@ -188,12 +194,14 @@ class SystemController extends BaseController
                 return warning('上传文件无效');
             }
 
-            $config=Config::getConfig('upload');
-            $allow=is_array($config['allow_ext']) ? $config['allow_ext'] : json_decode($config['allow_ext'],true);
             $ext=strtolower($file->getUploadExtension());
-            if(!in_array($ext,$allow)){
+            // 同 uploadUrl：统一出口，硬黑名单不允许后台配置放开
+            try {
+                UploadService::assertExtAllowed($ext);
+            } catch (ApiException $e) {
                 return warning('文件格式错误');
             }
+            $config=Config::getConfig('upload');
             if($file->getSize()>((int)$config['limit_size'])*1024*1024){
                 return warning('仅支持上传'.$config['limit_size'].'MB以下的文件');
             }

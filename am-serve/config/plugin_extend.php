@@ -47,6 +47,8 @@ return [
      * ServiceRegistry 首次 make() 时懒加载：key => 默认实现自动登记（priority=0）
      */
     'providers' => [
-        app\service\upload\DefaultUploadConfigResolver::class,
+        app\service\storage\DefaultUploadConfigResolver::class,
+        // 链路追踪接管点 'trace' 的默认空实现；OTel 插件以 bind(优先级>0) 接管
+        app\basic\NoopTrace::class,
     ],
 ];

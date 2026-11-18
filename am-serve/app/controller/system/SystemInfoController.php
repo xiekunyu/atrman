@@ -3,8 +3,9 @@
 namespace app\controller\system;
 
 use app\basic\BaseController;
-use app\service\Permission;
-use app\service\SystemInfoService;
+use app\service\system\ObservabilityService;
+use app\attribute\Permission;
+use app\service\system\SystemInfoService;
 use support\annotation\route\Get;
 use support\annotation\route\RouteGroup;
 use support\Response;
@@ -21,5 +22,16 @@ class SystemInfoController extends BaseController
     public function index(): Response
     {
         return success('', SystemInfoService::index());
+    }
+
+    /**
+     * 可观测性面板数据（队列积压 + 前端错误聚合）。
+     * 复用系统信息页权限 slug：受众同为后台管理员，避免新增无人分配的孤立权限项。
+     */
+    #[Get('/observability')]
+    #[Permission(title: '系统信息', slug: 'system:systemInfo:index')]
+    public function observability(): Response
+    {
+        return success('', ObservabilityService::index());
     }
 }

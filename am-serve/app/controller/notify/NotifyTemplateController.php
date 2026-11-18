@@ -5,15 +5,15 @@ namespace app\controller\notify;
 use app\basic\BaseController;
 use app\model\notify\NotifyTemplate;
 use app\model\system\User;
-use app\service\NotifyService;
-use app\service\TemplateEngine;
+use app\service\notify\NotifyService;
+use app\service\notify\TemplateEngine;
 use app\validate\notify\NotifyTemplateValidate;
 use support\annotation\route\Get;
 use support\annotation\route\Post;
 use support\annotation\route\RouteGroup;
 use support\Request;
 use support\Response;
-use app\service\Permission;
+use app\attribute\Permission;
 
 #[RouteGroup('/notify/template')]
 class NotifyTemplateController extends BaseController

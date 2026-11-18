@@ -10,7 +10,7 @@ use support\annotation\route\Post;
 use support\annotation\route\RouteGroup;
 use support\Request;
 use support\Response;
-use app\service\Permission;
+use app\attribute\Permission;
 
 #[RouteGroup('/sys/dict')]
 class DictController extends BaseController

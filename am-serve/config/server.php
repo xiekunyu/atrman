@@ -17,7 +17,9 @@ return [
     'stop_timeout' => 2,
     'pid_file' => runtime_path() . '/webman.pid',
     'status_file' => runtime_path() . '/webman.status',
-    'stdout_file' => runtime_path() . '/logs/stdout.log',
-    'log_file' => runtime_path() . '/logs/workerman.log',
+    // 容器环境经 env 重定向到标准流，交 Docker 日志驱动轮转（docker logs 可直接查看）；
+    // 裸机默认落 runtime/logs，由 deploy.md 的 logrotate 片段按日切割。
+    'stdout_file' => env('WORKERMAN_STDOUT_FILE', runtime_path() . '/logs/stdout.log'),
+    'log_file' => env('WORKERMAN_LOG_FILE', runtime_path() . '/logs/workerman.log'),
     'max_package_size' => 50 * 1024 * 1024
 ];

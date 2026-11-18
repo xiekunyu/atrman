@@ -3,7 +3,7 @@ namespace app\middleware;
 
 use app\cache\TtlMemo;
 use app\model\plugin\App as Plugin;
-use app\service\StoreService;
+use app\service\plugin\StoreService;
 use Webman\MiddlewareInterface;
 use Webman\Http\Response;
 use Webman\Http\Request;

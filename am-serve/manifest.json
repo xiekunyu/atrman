@@ -1,8 +1,8 @@
 {
     "name": "atrman",
     "title": "Atrman 企业级快速开发框架",
-    "version": "1.0.6",
-    "release": "20261108",
+    "version": "1.0.7",
+    "release": "20261117",
     "author": "raingad",
     "description": "基于 PHP 8.2 + Vue 3.5 + TypeScript 的企业级后台管理系统",
     "php_version": ">=8.2",

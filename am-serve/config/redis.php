@@ -25,5 +25,20 @@ return [
             'idle_timeout' => 60,
             'heartbeat_interval' => 50,
         ],
+    ],
+    // 队列只读连接：指向 redis-queue 的独立逻辑库（REDIS_QUEUE_DB，默认 1），
+    // 供可观测性面板 LLEN/ZCARD 队列积压，不参与任何写入
+    'queue' => [
+        'password' => env('REDIS_PASSWORD', ''),
+        'host' => env('REDIS_HOST', ''),
+        'port' => env('REDIS_PORT', 6379),
+        'database' => (int)env('REDIS_QUEUE_DB', 1),
+        'pool' => [
+            'max_connections' => 2,
+            'min_connections' => 1,
+            'wait_timeout' => 3,
+            'idle_timeout' => 60,
+            'heartbeat_interval' => 50,
+        ],
     ]
 ];

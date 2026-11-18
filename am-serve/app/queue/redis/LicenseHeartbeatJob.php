@@ -3,7 +3,8 @@
 namespace app\queue\redis;
 
 use app\model\plugin\App as Plugin;
-use app\service\StoreService;
+use app\service\system\AlertService;
+use app\service\plugin\StoreService;
 use support\Log;
 use Throwable;
 use Webman\RedisQueue\Consumer;
@@ -47,7 +48,17 @@ class LicenseHeartbeatJob implements Consumer
             return;
         }
 
-        $result = StoreService::heartbeat($plugin);
+        try {
+            $result = StoreService::heartbeat($plugin);
+        } catch (Throwable $e) {
+            // 告警只旁路不吞异常：重抛后队列既有重试/失败语义完全不变（AlertService 内部全兜底）
+            AlertService::send('license.heartbeat_failed', [
+                'plugin_id' => $pluginId,
+                'plugin' => $plugin->name,
+                'error' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
         if (!$result['valid']) {
             Log::warning(sprintf(
                 'License 心跳未通过 [%s]：%s',

@@ -263,12 +263,16 @@
       "user": "用户管理",
       "role": "角色管理",
       "userCenter": "个人中心",
-      "menu": "菜单管理",
+      "menu": "菜单管理"
+    },
+    "ops": {
+      "title": "运维管理",
       "log": "操作日志",
       "loginLog": "登录日志",
-      "cache": "缓存管理",
+      "cache": "缓存监控",
       "server": "服务器监控",
-      "backup": "备份管理"
+      "backup": "备份管理",
+      "info": "系统信息"
     }
   },
   "table": {

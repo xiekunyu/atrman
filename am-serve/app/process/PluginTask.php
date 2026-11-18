@@ -56,14 +56,18 @@ class PluginTask
     }
 
     /**
-     * 抢占 Redis 锁执行任务（成功：执行 + 释放）；其它实例在锁存活期内跳过
+     * 抢占 Redis 锁执行任务（成功：执行 + finally 主动释放）；其它实例在锁存活期内跳过。
+     *
+     * 锁值用随机令牌：释放时 Lua 先比对再删，避免「本实例任务超时 → TTL 到期 →
+     * 另一实例抢到同名锁 → 本实例 finally 误删别人的锁」。释放失败仍有 300s TTL 兜底。
      */
     private static function runWithLock(array $task): void
     {
         $lockKey = self::LOCK_PREFIX . $task['name'];
+        $token = bin2hex(random_bytes(16));
         // set 必须用位置参数 'EX', ttl, 'NX'（illuminate/redis 会把它翻译给 phpredis，predis 原生也支持）；
         // 传 phpredis 风格的选项数组会被 PhpRedisConnection::set 当数组键，PHP 8.x 直接抛 TypeError
-        $locked = Redis::set($lockKey, 1, 'EX', self::LOCK_TTL, 'NX');
+        $locked = Redis::set($lockKey, $token, 'EX', self::LOCK_TTL, 'NX');
         if (!$locked) {
             // 锁已被抢占（其它 worker / 其它实例正在运行）
             return;
@@ -77,6 +81,24 @@ class PluginTask
                 $task['name'],
                 $e->getMessage()
             ));
+        } finally {
+            try {
+                // KEYS[1]=锁键 ARGV[1]=本实例令牌；仅持有者可删，原子 compare-and-delete
+                Redis::eval(
+                    'if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end',
+                    1,
+                    $lockKey,
+                    $token
+                );
+            } catch (\Throwable $e) {
+                // 主动释放失败不影响任务结果，交给 LOCK_TTL 到期自动释放
+                Log::warning(sprintf(
+                    '[PluginTask] 任务 %s 锁主动释放失败，等待 %ds TTL 到期：%s',
+                    $task['name'],
+                    self::LOCK_TTL,
+                    $e->getMessage()
+                ));
+            }
         }
     }
 

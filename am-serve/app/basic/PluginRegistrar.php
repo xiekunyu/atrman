@@ -13,7 +13,7 @@ use app\model\system\Dict;
 use app\model\system\Menu;
 use app\model\system\Remote;
 use app\model\system\RoleMenu;
-use app\service\PermissionScanner;
+use app\service\auth\PermissionScanner;
 use support\Log;
 
 /**

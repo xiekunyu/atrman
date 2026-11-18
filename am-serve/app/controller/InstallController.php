@@ -2,7 +2,7 @@
 
 namespace app\controller;
 
-use app\service\InstallService;
+use app\service\system\InstallService;
 use support\annotation\route\Get;
 use support\annotation\route\Post;
 use support\annotation\route\RouteGroup;

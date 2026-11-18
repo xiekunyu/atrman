@@ -21,6 +21,7 @@ import { HttpError, handleError, showError, showSuccess, showWarning } from './e
 import { $t } from '@/locales'
 import { BaseResponse } from '@/types'
 import { getApiBaseURL } from '@/utils/env'
+import { writeSession, emitSessionRefreshed, onSessionRefreshed } from '@/utils/atrman-session'
 
 /** 请求配置常量 */
 const REQUEST_TIMEOUT = 15000
@@ -37,6 +38,11 @@ let unauthorizedTimer: NodeJS.Timeout | null = null
 interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
   showErrorMessage?: boolean
   showSuccessMessage?: boolean
+}
+
+/** 带重放标记的内部配置（401 续期后重放置位，防刷新失败时无限重试） */
+interface RetryableRequestConfig extends InternalAxiosRequestConfig {
+  __retried?: boolean
 }
 
 const { VITE_WITH_CREDENTIALS } = import.meta.env
@@ -86,11 +92,16 @@ axiosInstance.interceptors.response.use(
   (response: AxiosResponse<BaseResponse>) => {
     const { code, msg } = response.data
     if (code === ApiStatus.success) return response
-    if (code === ApiStatus.unauthorized) handleUnauthorizedError(msg)
+    if (code === ApiStatus.unauthorized) {
+      // 信封级 401（HTTP 200 包裹）：同样进入续期/重放流程
+      return handleUnauthorized(msg, response.config as RetryableRequestConfig)
+    }
     throw createHttpError(msg || $t('httpMsg.requestFailed'), code)
   },
   (error) => {
-    if (error.response?.status === ApiStatus.unauthorized) handleUnauthorizedError()
+    if (error.response?.status === ApiStatus.unauthorized && error.config) {
+      return handleUnauthorized(undefined, error.config as RetryableRequestConfig)
+    }
     return Promise.reject(handleError(error))
   }
 )
@@ -100,8 +111,81 @@ function createHttpError(message: string, code: number) {
   return new HttpError(message, code)
 }
 
-/** 处理401错误（带防抖） */
-function handleUnauthorizedError(message?: string): never {
+/**
+ * 401 自动续期（single-flight）：并发请求同时 401 时只发一次 refresh，
+ * 其余请求挂在同一个 Promise 上，拿到新令牌后各自重放原请求；
+ * 无 refresh 令牌、续期失败或重放后仍 401（__retried）才走原有强退。
+ * 注意：SSE/裸 fetch（如流式对话、文件下载）不经过 axios 实例，天然不参与重放。
+ */
+let refreshInFlight: Promise<void> | null = null
+
+/** 调基座 /pub/auth/refresh 轮转令牌对，并重写 atrman:session 让同域其它标签经 storage 事件跟随 */
+async function doRefreshSession(): Promise<void> {
+  const userStore = useUserStore()
+  const oldRefresh = userStore.refreshToken
+  if (!oldRefresh) throw new Error('missing refresh token')
+  // 裸 axios 直发，绕过本实例拦截器：refresh 自身的 401 不能再进续期分支（否则递归）
+  const resp = await axios.post(
+    `${getApiBaseURL()}/pub/auth/refresh`,
+    null,
+    {
+      timeout: REQUEST_TIMEOUT,
+      headers: { Authorization: oldRefresh },
+      withCredentials: VITE_WITH_CREDENTIALS === 'true'
+    }
+  )
+  const envelope = resp.data as BaseResponse<{ accessToken: string; refreshToken?: string }>
+  const next = envelope?.data
+  if (envelope?.code !== ApiStatus.success || !next?.accessToken) {
+    throw new Error('refresh rejected')
+  }
+  const nextRefresh = next.refreshToken || oldRefresh
+  userStore.setToken(next.accessToken, nextRefresh)
+  writeSession({
+    accessToken: next.accessToken,
+    refreshToken: nextRefresh,
+    user: (userStore.info || {}) as Record<string, any>
+  })
+  // 同步同标签的 qiankun 子应用/基座：它们各自持有独立 pinia，收不到 storage 事件
+  emitSessionRefreshed({ accessToken: next.accessToken, refreshToken: nextRefresh })
+}
+
+/** single-flight 入口：同一时刻的多个 401 复用同一个刷新 Promise */
+function refreshSession(): Promise<void> {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefreshSession().finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return refreshInFlight
+}
+
+// 同标签内其它应用（qiankun 基座/兄弟插件）完成轮转时同步本应用 store，
+// 避免本应用持有已吊销的 refresh，下次 401 刷新失败被强退
+onSessionRefreshed(({ accessToken, refreshToken }) => {
+  const userStore = useUserStore()
+  if (accessToken && accessToken !== userStore.accessToken) {
+    userStore.setToken(accessToken, refreshToken)
+  }
+})
+
+/** 401 总入口：能续期则重放，否则强退 */
+async function handleUnauthorized(message: string | undefined, config: RetryableRequestConfig): Promise<any> {
+  if (!config.__retried && useUserStore().refreshToken) {
+    try {
+      await refreshSession()
+      config.__retried = true
+      config.headers.set('Authorization', useUserStore().accessToken)
+      return axiosInstance.request(config)
+    } catch {
+      // refresh 过期/被吊销/网络异常：落到强退语义
+    }
+  }
+  return forceLogout(message)
+}
+
+/** 续期失败后的强退（带防抖，保持既有交互） */
+function forceLogout(message?: string): never {
   const error = createHttpError(message || $t('httpMsg.unauthorized'), ApiStatus.unauthorized)
 
   if (!isUnauthorizedErrorShown) {

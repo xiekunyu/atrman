@@ -16,8 +16,8 @@ use support\annotation\route\Post;
 use support\annotation\route\RouteGroup;
 use support\Request;
 use support\Response;
-use app\service\Permission;
-use app\service\PluginManager;
+use app\attribute\Permission;
+use app\service\plugin\PluginManager;
 
 #[RouteGroup('/sys/menu')]
 class MenuController extends BaseController

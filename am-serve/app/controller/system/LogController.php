@@ -4,7 +4,7 @@ namespace app\controller\system;
 
 use app\basic\BaseController;
 use app\model\system\SystemLog;
-use app\service\Permission;
+use app\attribute\Permission;
 use support\annotation\route\Get;
 use support\annotation\route\RouteGroup;
 use support\Request;

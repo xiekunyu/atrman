@@ -4,13 +4,13 @@ namespace app\controller\notify;
 
 use app\basic\BaseController;
 use app\model\notify\NotifyPreference;
-use app\service\NotifyService;
+use app\service\notify\NotifyService;
 use support\annotation\route\Get;
 use support\annotation\route\Post;
 use support\annotation\route\RouteGroup;
 use support\Request;
 use support\Response;
-use app\service\Permission;
+use app\attribute\Permission;
 
 #[RouteGroup('/notify/preference')]
 class NotifyPreferenceController extends BaseController

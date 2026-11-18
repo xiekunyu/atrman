@@ -7,7 +7,7 @@
 namespace app\basic;
 
 use app\exception\ApiException;
-use app\service\DataScopeService;
+use app\service\auth\DataScopeService;
 use support\think\Db;
 /**
  * 基类 控制器继承此类

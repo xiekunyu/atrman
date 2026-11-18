@@ -4,9 +4,9 @@ namespace app\controller\plugin;
 
 use app\basic\BaseController;
 use app\exception\ApiException;
-use app\service\CoreUpgradeService;
-use app\service\Permission;
-use app\service\StoreService;
+use app\service\plugin\CoreUpgradeService;
+use app\attribute\Permission;
+use app\service\plugin\StoreService;
 use support\annotation\route\Get;
 use support\annotation\route\Post;
 use support\Request;

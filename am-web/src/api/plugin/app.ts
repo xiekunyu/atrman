@@ -14,6 +14,8 @@ export interface InstallPackagePayload {
 
 export interface RestorePackagePayload {
   file_id?: number | string
+  /** 历史未签名备份包的显式放行确认语，固定传 'LEGACY_UNSIGNED'；正常签名包不带 */
+  confirm?: 'LEGACY_UNSIGNED'
 }
 
 export interface PackageInspectPayload {
@@ -135,10 +137,11 @@ export default {
       ...(data instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : {})
     })
   },
-  restorePackage(data: FormData | RestorePackagePayload) {
+  restorePackage(data: FormData | RestorePackagePayload, options: { showErrorMessage?: boolean } = {}) {
     return request.post<Api.Common.ApiData>({
       url: '/plugin/app/restorePackage',
       data,
+      showErrorMessage: options.showErrorMessage,
       ...(data instanceof FormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : {})
     })
   },

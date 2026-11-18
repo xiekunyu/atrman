@@ -3,7 +3,7 @@
 namespace app\middleware;
 
 use app\controller\InstallController;
-use app\service\InstallService;
+use app\service\system\InstallService;
 use Webman\MiddlewareInterface;
 use Webman\Http\Request;
 use Webman\Http\Response;
@@ -37,6 +37,11 @@ class InstallGuard implements MiddlewareInterface
     public function process(Request $request, callable $handler): Response
     {
         $path = '/' . ltrim($request->path(), '/');
+
+        // 健康探针不依赖安装态：未安装实例的进程同样存活，探针应如实反映进程而非引导安装
+        if ($path === '/health' || $path === '/health/ready') {
+            return $handler($request);
+        }
 
         // 安装态判定统一收口到 InstallService（双重锁 + 数据兜底），避免两处口径漂移
         if (InstallService::isInstalled()) {

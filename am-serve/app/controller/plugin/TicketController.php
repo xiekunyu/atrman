@@ -5,9 +5,9 @@ namespace app\controller\plugin;
 use app\basic\BaseController;
 use app\model\plugin\App as Plugin;
 use app\model\system\User;
-use app\service\IdentityService;
-use app\service\PluginManifestService;
-use app\service\TicketService;
+use app\service\auth\IdentityService;
+use app\service\plugin\PluginManifestService;
+use app\service\auth\TicketService;
 use support\annotation\route\Post;
 use support\Request;
 use support\Response;
@@ -183,8 +183,8 @@ class TicketController extends BaseController
             'mobile' => (string) $userInfo->mobile,
             'account_type' => (int) $userInfo->account_type,
             'is_admin' => (int) $userInfo->id === 1 || (int) $userInfo->account_type === User::ACCOUNT_ADMIN,
-            'exp' => time() + 7200,
-            // 与基座登录同口径：带 jti 才能被退出登录吊销（见 app\basic\JwtRevoker）
+            // 与基座登录同口径：带 jti 才能被退出登录吊销（见 app\basic\JwtRevoker）；
+            // 顶层 exp 由 tinywan/jwt 按 JWT_ACCESS_EXP 统一生成，不在 extend 内另塞硬编码
             'jti' => \app\utils\Str::random(16),
         ];
         $token = JwtToken::generateToken($tokenPayload);

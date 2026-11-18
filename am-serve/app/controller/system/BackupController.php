@@ -5,13 +5,16 @@ namespace app\controller\system;
 use app\basic\BaseController;
 use app\model\system\Backup;
 use app\model\system\File;
-use app\service\BackupService;
-use app\service\FileService;
-use app\service\Permission;
-use app\service\UploadService;
+use app\service\system\BackupJobService;
+use app\service\system\BackupService;
+use app\service\storage\FileService;
+use app\attribute\Permission;
+use app\service\support\QueueService;
+use app\service\storage\UploadService;
 use support\annotation\route\Get;
 use support\annotation\route\Post;
 use support\annotation\route\RouteGroup;
+use support\Log;
 use support\Request;
 use support\Response;
 
@@ -61,14 +64,39 @@ class BackupController extends BaseController
     }
 
     /**
-     * 创建系统备份
+     * 创建系统备份（投队列后台执行，接口立即返回占位记录）。
      */
     #[Post('/create')]
     #[Permission(title: '创建备份', slug: 'system:backup:create')]
     public function create(Request $request): Response
     {
-        $record = BackupService::backupSystem();
-        return success('备份创建成功', $record);
+        // 先落占位行（status=pending）：队列任务终态回写同一行，前端按 status 轮询列表
+        $appManifest = BackupService::readAppManifest();
+        $record = new Backup();
+        $record->save([
+            'app_name' => 'system',
+            'title' => 'Atrman 系统备份',
+            'version' => (string)($appManifest['version'] ?? ''),
+            'backup_type' => Backup::TYPE_SYSTEM,
+            'file_id' => 0,
+            'file_count' => 0,
+            'status' => Backup::STATUS_PENDING,
+            'error_message' => '',
+        ]);
+
+        $dispatched = QueueService::dispatch(BackupJobService::HANDLER_BACKUP, [
+            'backup_id' => (int)$record->id,
+            'operator_uid' => currentUserId(),
+        ]);
+
+        if (!$dispatched) {
+            // 队列不可用降级为同步执行：Redis 故障窗口内功能不中断，代价是本次请求阻塞
+            Log::warning('[系统备份] 队列投递失败，降级同步执行 backup_id=' . $record->id);
+            $record = BackupService::backupSystem((int)$record->id);
+            return success('消息队列不可用，已同步完成备份', $record);
+        }
+
+        return success('备份任务已提交，请在列表中查看进度', $record);
     }
 
     /**
@@ -195,14 +223,14 @@ class BackupController extends BaseController
     }
 
     /**
-     * 执行恢复
+     * 执行恢复（投队列后台执行，执行期间站点进入维护模式）。
      */
     #[Post('/restore')]
     #[Permission(title: '恢复系统', slug: 'system:backup:restore')]
     public function restore(Request $request): Response
     {
-        $id = $request->post('id');
-        if (empty($id)) {
+        $id = (int)$request->post('id', 0);
+        if ($id <= 0) {
             return warning('参数错误');
         }
 
@@ -210,7 +238,7 @@ class BackupController extends BaseController
         // 合并 .env 并导入 SQL，等于任意代码部署。这类恢复只允许超管执行；
         // 本机 create() 生成的备份仍按原有 system:backup:restore 授权走。
         if (!isSuperAdmin()) {
-            $backup = Backup::findOrEmpty((int)$id);
+            $backup = Backup::findOrEmpty($id);
             if (!$backup->isEmpty()) {
                 $file = File::findOrEmpty((int)$backup->file_id);
                 $source = $file->isEmpty() ? '' : (string)($file->extends['source'] ?? '');
@@ -220,8 +248,33 @@ class BackupController extends BaseController
             }
         }
 
-        $result = BackupService::restoreSystem((int)$id);
-        return success($result['message'] ?? '恢复成功', $result);
+        // 恢复任务不做同步降级：耗时极长且依赖维护标记语义，队列不可用应显式失败
+        $jobId = 'restore_' . bin2hex(random_bytes(12));
+        $dispatched = QueueService::dispatch(BackupJobService::HANDLER_RESTORE, [
+            'job_id' => $jobId,
+            'backup_id' => $id,
+            'operator_uid' => currentUserId(),
+        ]);
+        if (!$dispatched) {
+            return error('消息队列不可用，无法启动恢复任务，请检查 Redis 后重试');
+        }
+
+        return success('恢复任务已提交，执行期间站点进入维护模式', ['job_id' => $jobId]);
+    }
+
+    /**
+     * 恢复任务快照轮询（终态保留一天）。
+     */
+    #[Get('/task')]
+    #[Permission(title: '恢复任务状态', slug: 'system:backup:index')]
+    public function task(Request $request): Response
+    {
+        $jobId = trim((string)$request->get('job_id', ''));
+        $snapshot = BackupJobService::taskSnapshot($jobId);
+        if (!$snapshot) {
+            return warning('任务不存在或已过期');
+        }
+        return success('', $snapshot);
     }
 
     /**
@@ -277,7 +330,7 @@ class BackupController extends BaseController
                 'database_summary' => null,
                 'plugin_snapshot' => $backupManifest['plugin_list'] ?? [],
                 'manifest' => $backupManifest ?: null,
-                'status' => 1,
+                'status' => Backup::STATUS_SUCCESS,
                 'error_message' => '',
             ]);
 

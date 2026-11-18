@@ -3,13 +3,16 @@
 namespace app\controller\system;
 
 use app\basic\BaseController;
+use app\exception\ApiException;
 use app\model\system\File;
 use support\annotation\route\Get;
 use support\annotation\route\Post;
 use support\annotation\route\RouteGroup;
 use support\Request;
 use support\Response;
-use app\service\Permission;
+use app\attribute\Permission;
+use app\attribute\RateLimit;
+use app\service\storage\UploadService;
 
 #[RouteGroup('/sys/file')]
 class FileController extends BaseController
@@ -274,6 +277,7 @@ class FileController extends BaseController
      */
     #[Post('/checkMd5')]
     #[Permission(title: '检查文件MD5', slug: 'system:file:checkMd5')]
+    #[RateLimit(max: 20, window: 60)]
     public function checkMd5(Request $request): Response
     {
         $md5 = $request->post('md5');
@@ -285,8 +289,14 @@ class FileController extends BaseController
 
         // 查询是否已存在相同MD5的文件
         $existingFile = $this->model->where('md5', $md5)->where('status', 1)->find();
-        
+
         if ($existingFile) {
+            // 秒传只写库不碰磁盘，但同样要过白名单 + 硬黑名单，防止历史脏 ext 借秒传扩散新记录
+            try {
+                UploadService::assertExtAllowed((string)$existingFile->ext);
+            } catch (ApiException $e) {
+                return warning($e->getMessage());
+            }
             $fileData = [
                 'name' => $existingFile->name,
                 'path' => $existingFile->path,
@@ -320,6 +330,7 @@ class FileController extends BaseController
      */
     #[Post('/merge')]
     #[Permission(title: '合并文件', slug: 'system:file:merge')]
+    #[RateLimit(max: 20, window: 60)]
     public function merge(Request $request): Response
     {
         $md5 = $request->post('md5');
@@ -332,9 +343,15 @@ class FileController extends BaseController
             return warning('参数错误');
         }
 
-        // 获取文件扩展名
-        $ext = pathinfo($filename, PATHINFO_EXTENSION);
-        
+        // 获取文件扩展名（统一小写：与普通上传入口落库口径一致）
+        $ext = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+        // 分片合并是正常上传之外的旁路：任何落库/文件操作前先过白名单 + 硬黑名单
+        try {
+            UploadService::assertExtAllowed($ext);
+        } catch (ApiException $e) {
+            return warning($e->getMessage());
+        }
+
         // 获取存储配置
         $uploadConfig = config('plugin.tinywan.storage.app');
         $disk = $storageId == 1 ? 'local' : 'oss';

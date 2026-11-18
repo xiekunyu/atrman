@@ -18,7 +18,8 @@ Webman 常驻内存内核 + 扩展内核 + 系统能力。框架整体介绍、�
 am-serve/
 ├── app/basic/          # 扩展内核注册表与基类（Event/Service/Adapter/Middleware/Task/ChannelAuth · PluginRegistrar · Base*）
 ├── app/controller/     # system/ · notify/ · plugin/（App · Store · Ticket · OAuth · Widget）
-├── app/service/        # PluginManager · Backup · DataScope · Identity · CoreUpgrade · Store · Upload …
+├── app/attribute/      # 注解（Permission · RateLimit）
+├── app/service/        # 按域分目录：auth · plugin · system · storage · notify · support（根目录不放类）
 ├── app/model/          # ThinkORM 模型（BaseModel 统一时间戳与格式化）
 ├── app/middleware/     # 鉴权 · 操作日志 · 安全头 · 维护模式 · InstallGuard
 ├── app/{queue,process,cache,event,validate,exception,interface,view,utils}/ · functions.php

@@ -22,6 +22,7 @@ import {
   writeSession,
   readTicketFromUrl,
   stripTicketFromUrl,
+  isValidSession,
   type AtrmanSession
 } from '@/utils/atrman-session'
 
@@ -101,7 +102,9 @@ export function setupSessionSync(): void {
       return
     }
     try {
-      applyOrClear(JSON.parse(e.newValue) as AtrmanSession)
+      const parsed = JSON.parse(e.newValue)
+      // 契约版本/形状校验：未知版本或脏数据按登出处理，不把坏令牌水合进 store
+      applyOrClear(isValidSession(parsed) ? (parsed as AtrmanSession) : null)
     } catch {
       applyOrClear(null)
     }

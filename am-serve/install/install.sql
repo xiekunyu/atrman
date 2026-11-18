@@ -724,4 +724,27 @@ CREATE TABLE `am_system_user_role` (
   KEY `idx_role_id` (`role_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='用户-角色关联表';
 
+-- --------------------------------------------------------
+
+--
+-- 表的结构 `am_system_error_report`
+--
+
+CREATE TABLE `am_system_error_report` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '上报ID',
+  `app` varchar(50) NOT NULL DEFAULT '' COMMENT '来源应用（am_web/am_member/am_aibase/am_store/am_plugin）',
+  `level` varchar(20) NOT NULL DEFAULT 'error' COMMENT '级别：error/warn',
+  `type` varchar(30) NOT NULL DEFAULT '' COMMENT '错误类型：vue/script/promise/resource',
+  `message` varchar(1000) NOT NULL DEFAULT '' COMMENT '错误消息（入库前脱敏并截断）',
+  `stack` text COMMENT '堆栈摘要（脱敏并截断 4000 字符）',
+  `page_url` varchar(500) NOT NULL DEFAULT '' COMMENT '发生页面 URL（查询串敏感参数已脱敏）',
+  `user_agent` varchar(255) NOT NULL DEFAULT '' COMMENT '浏览器 UA',
+  `ip` varchar(45) NOT NULL DEFAULT '' COMMENT '上报方 IP',
+  `user_id` int DEFAULT NULL COMMENT '登录用户 ID，匿名上报为空',
+  `create_time` int DEFAULT NULL COMMENT '上报时间',
+  PRIMARY KEY (`id`),
+  KEY `idx_create_time` (`create_time`),
+  KEY `idx_app_type` (`app`,`type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='前端错误上报表（只存不回显，仅供聚合统计）';
+
 COMMIT;

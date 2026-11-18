@@ -24,6 +24,10 @@ class AuthCheck implements MiddlewareInterface
     private const PUBLIC_PATH_PREFIXES = [
         '/api/install',
         '/app/am_store/public',
+        // 健康探针：liveness/readiness 须免 token 可达，且整个前缀 100% 公开
+        '/health',
+        // 指标端点：免 JWT 但在 MetricsController 内自验 METRICS_TOKEN（未配置即 404）
+        '/metrics',
     ];
 
     public function process(Request $request, callable $handler) : Response

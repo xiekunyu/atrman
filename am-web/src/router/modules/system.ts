@@ -61,61 +61,6 @@ export const systemRoutes: AppRouteRecord = {
       }
     },
     {
-      path: 'log',
-      name: 'SystemLog',
-      component: '/system/log',
-      meta: {
-        title: 'menus.system.log',
-        icon: 'ri:file-list-3-line',
-        keepAlive: true,
-        roles: ['R_SUPER']
-      }
-    },
-    {
-      path: 'loginLog',
-      name: 'LoginLog',
-      component: '/system/loginLog',
-      meta: {
-        title: 'menus.system.loginLog',
-        icon: 'ri:login-box-line',
-        keepAlive: true,
-        roles: ['R_SUPER']
-      }
-    },
-    {
-      path: 'cache',
-      name: 'SystemCache',
-      component: '/system/cache',
-      meta: {
-        title: 'menus.system.cache',
-        icon: 'ri:database-2-line',
-        keepAlive: true,
-        roles: ['R_SUPER']
-      }
-    },
-    {
-      path: 'server',
-      name: 'SystemServer',
-      component: '/system/server',
-      meta: {
-        title: 'menus.system.server',
-        icon: 'ri:server-line',
-        keepAlive: true,
-        roles: ['R_SUPER']
-      }
-    },
-    {
-      path: 'backup',
-      name: 'SystemBackup',
-      component: '/system/backup',
-      meta: {
-        title: 'menus.system.backup',
-        icon: 'ri:hard-drive-3-line',
-        keepAlive: true,
-        roles: ['R_SUPER']
-      }
-    },
-    {
       path: 'nested',
       name: 'Nested',
       component: '',

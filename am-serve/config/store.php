@@ -13,6 +13,12 @@ return [
     // 远程请求超时时间（秒）
     'remote_timeout' => (int)env('STORE_REMOTE_TIMEOUT', 30),
 
+    // 建连超时（秒）：复用的 keep-alive 连接被网关回收后，靠它在建连阶段快速失败而非干等到总超时
+    'remote_connect_timeout' => (int)env('STORE_REMOTE_CONNECT_TIMEOUT', 3),
+
+    // 轻量查询（系统更新检查）短总超时（秒）：市场抖动时快速降级，避免长时间占住 webman worker
+    'remote_query_timeout' => (int)env('STORE_REMOTE_QUERY_TIMEOUT', 5),
+
     // 安装包下载超时时间（秒）
     'download_timeout' => (int)env('STORE_DOWNLOAD_TIMEOUT', 300),
 

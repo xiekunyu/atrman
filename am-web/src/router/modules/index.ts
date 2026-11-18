@@ -4,6 +4,7 @@ import { templateRoutes } from './template'
 import { widgetsRoutes } from './widgets'
 import { examplesRoutes } from './examples'
 import { systemRoutes } from './system'
+import { opsRoutes } from './ops'
 import { articleRoutes } from './article'
 import { resultRoutes } from './result'
 import { exceptionRoutes } from './exception'
@@ -19,6 +20,7 @@ export const routeModules: AppRouteRecord[] = [
   widgetsRoutes,
   examplesRoutes,
   systemRoutes,
+  opsRoutes,
   articleRoutes,
   resultRoutes,
   exceptionRoutes,

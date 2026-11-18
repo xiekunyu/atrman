@@ -10,6 +10,15 @@ class Backup extends BaseModel
     public const TYPE_PLUGIN = 1;
     public const TYPE_SYSTEM = 2;
 
+    /** 进行中（队列任务已受理，产物尚未生成） */
+    public const STATUS_PENDING = 0;
+
+    /** 成功（历史约定值，restoreSystem 仅允许恢复该状态） */
+    public const STATUS_SUCCESS = 1;
+
+    /** 失败（error_message 存原因） */
+    public const STATUS_FAILED = -1;
+
     protected $name = 'system_backup';
 
     protected $json = ['database_summary', 'plugin_snapshot', 'manifest'];

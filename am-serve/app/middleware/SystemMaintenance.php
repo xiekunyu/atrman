@@ -2,16 +2,18 @@
 
 namespace app\middleware;
 
-use app\service\CoreUpgradeService;
+use app\service\plugin\CoreUpgradeService;
+use app\service\system\MaintenanceService;
 use Webman\Http\Request;
 use Webman\Http\Response;
 use Webman\MiddlewareInterface;
 
 /**
- * 主程序升级维护中间件
+ * 维护模式中间件（主程序升级 / 系统恢复共用）
  *
- * 升级任务执行期间（CoreUpgradeService 置/清全局维护标记），对访客与业务请求展示
- * "系统升级中"，避免半升级状态下产生错误数据；任务成功或自动回滚完成后解除。
+ * 升级任务（CoreUpgradeService）或系统恢复队列任务（MaintenanceService）置标记期间，
+ * 对访客与业务请求展示维护页，避免半升级/半恢复状态下产生错误数据；任务收尾后解除。
+ * 两个标记来源分键存储，本中间件任一命中即拦截。
  *
  * 放行规则（白名单，刻意保守最小）：
  * - 静态资源与 SPA 外壳（带扩展名的文件、/index.html、站点根路径）——升级提示页要能加载；
@@ -32,7 +34,7 @@ class SystemMaintenance implements MiddlewareInterface
 
     public function process(Request $request, callable $handler): Response
     {
-        if (!CoreUpgradeService::isMaintaining()) {
+        if (!CoreUpgradeService::isMaintaining() && !MaintenanceService::isActive()) {
             return $handler($request);
         }
 
@@ -51,6 +53,11 @@ class SystemMaintenance implements MiddlewareInterface
     {
         // 站点根与 SPA 外壳
         if ($path === '/' || $path === '/index.html') {
+            return true;
+        }
+        // 健康探针：维护模式是人为停服而非进程死亡，liveness 必须保持 200，
+        // 否则编排系统会在升级/恢复窗口反复重启实例
+        if ($path === '/health' || $path === '/health/ready') {
             return true;
         }
         // 静态资源
@@ -81,14 +88,18 @@ class SystemMaintenance implements MiddlewareInterface
         return false;
     }
 
-    /** 维护中响应：接口返回 503 JSON，浏览器返回升级提示页。 */
+    /** 维护中响应：接口返回 503 JSON，浏览器返回维护提示页。 */
     protected function refuse(Request $request, string $path): Response
     {
-        $info = CoreUpgradeService::maintenanceInfo();
+        // 升级标记优先：它带 hold/目标版本等恢复标记没有的语义；未升级时取通用维护标记
+        $upgrade = CoreUpgradeService::maintenanceInfo();
+        $restore = MaintenanceService::info();
+        $info = $upgrade ?: $restore;
+        $isUpgrade = $upgrade !== [];
         $since = (string)($info['since_text'] ?? '');
         $target = (string)($info['to'] ?? '');
         // 钉住状态：回滚不彻底的半升级站点，不能只说“请稍后再试”，要明说需人工处理
-        $hold = !empty($info['hold']);
+        $hold = $isUpgrade && !empty($upgrade['hold']);
         $retry = $hold ? max(300, (int)config('store.maintenance_retry', 120))
             : max(30, (int)config('store.maintenance_retry', 120));
 
@@ -99,9 +110,13 @@ class SystemMaintenance implements MiddlewareInterface
 
         if ($isApi) {
             // 不用 json() 封装：它把第二个参数当 json_encode 选项而非状态码，必须显式构返 503
-            $msg = $hold
-                ? '系统升级未完成，站点暂停访问，请联系管理员处理'
-                : '系统升级中，请稍后再试' . ($target !== '' ? '（目标版本 ' . $target . '）' : '');
+            if ($hold) {
+                $msg = '系统升级未完成，站点暂停访问，请联系管理员处理';
+            } elseif ($isUpgrade) {
+                $msg = '系统升级中，请稍后再试' . ($target !== '' ? '（目标版本 ' . $target . '）' : '');
+            } else {
+                $msg = '系统维护中（' . (string)($restore['label'] ?? '恢复任务') . '），请稍后再试';
+            }
             $body = (string)json_encode([
                 'code' => 503,
                 'msg' => $msg,
@@ -113,11 +128,18 @@ class SystemMaintenance implements MiddlewareInterface
             ]);
         }
 
-        $note = $since !== '' ? '升级开始时间：' . htmlspecialchars($since, ENT_QUOTES) . '<br>' : '';
-        $headline = $hold ? '系统升级已中断' : '系统升级中';
-        $lead = $hold
-            ? '本次升级未能完成且部分文件无法自动还原，站点保持暂停访问，需管理员人工处理。'
-            : '系统正在进行版本升级，站点暂停访问，请稍后再试。';
+        $note = $since !== '' ? '开始时间：' . htmlspecialchars($since, ENT_QUOTES) . '<br>' : '';
+        if ($hold) {
+            $headline = '系统升级已中断';
+            $lead = '本次升级未能完成且部分文件无法自动还原，站点保持暂停访问，需管理员人工处理。';
+        } elseif ($isUpgrade) {
+            $headline = '系统升级中';
+            $lead = '系统正在进行版本升级，站点暂停访问，请稍后再试。';
+        } else {
+            $headline = '系统维护中';
+            $lead = '系统正在执行' . htmlspecialchars((string)($restore['label'] ?? '维护任务'), ENT_QUOTES)
+                . '，站点暂停访问，请稍后再试。';
+        }
         $html = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">'
             . '<meta name="viewport" content="width=device-width,initial-scale=1">'
             . '<meta http-equiv="refresh" content="' . $retry . '">'

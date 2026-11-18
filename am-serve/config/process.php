@@ -26,6 +26,13 @@ if ($workerCount <= 0) {
     $workerCount = min(cpu_count(), 4);
 }
 
+// 文件监控显式开关：容器等只读镜像环境用 MONITOR_FILE_ENABLED=false 关闭，省掉 monitor 的轮询开销。
+// 未配置时维持原口径：守护模式（-d）关闭、仅 Linux 开启（Windows 下 Monitor 的 reload 信号不可用）。
+$monitorEnv = env('MONITOR_FILE_ENABLED');
+$fileMonitorEnabled = $monitorEnv === null
+    ? (!in_array('-d', $argv) && DIRECTORY_SEPARATOR === '/')
+    : filter_var((string)$monitorEnv, FILTER_VALIDATE_BOOLEAN);
+
 return [
     'webman' => [
         'handler' => Http::class,
@@ -62,7 +69,7 @@ return [
                 'php', 'html', 'htm', 'env'
             ],
             'options' => [
-                'enable_file_monitor' => !in_array('-d', $argv) && DIRECTORY_SEPARATOR === '/',
+                'enable_file_monitor' => $fileMonitorEnabled,
                 'enable_memory_monitor' => DIRECTORY_SEPARATOR === '/',
             ]
         ]

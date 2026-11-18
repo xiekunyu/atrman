@@ -4,7 +4,8 @@ namespace app\cache;
 
 use ReflectionClass;
 use ReflectionMethod;
-use app\service\Permission;
+use app\attribute\Permission;
+use app\attribute\RateLimit;
 
 /**
  * 控制器注解缓存。
@@ -43,6 +44,15 @@ class ReflectionCache
         return self::memo()->remember($key, fn() => self::readPermission($controller, $action));
     }
 
+    /**
+     * 限流注解：方法级优先，其次类级；无注解返回空数组。
+     */
+    public static function getRateLimitAttributes(string $controller, string $action): array
+    {
+        $key = 'ratelimit' . "\0" . $controller . '::' . $action;
+        return self::memo()->remember($key, fn() => self::readRateLimit($controller, $action));
+    }
+
     /** 代码或插件启停变更后重置本进程（其余 worker 由 MEMO_TTL 兜底）。 */
     public static function clear(): void
     {
@@ -71,5 +81,31 @@ class ReflectionCache
             'title' => $attr->getTitle(),
             'slug' => $attr->getSlug(),
         ];
+    }
+
+    private static function readRateLimit(string $controller, string $action): array
+    {
+        if (!class_exists($controller) || !method_exists($controller, $action)) {
+            return [];
+        }
+        // 方法级优先，未命中再读类级
+        $refs = [
+            new ReflectionMethod($controller, $action),
+            new ReflectionClass($controller),
+        ];
+        foreach ($refs as $ref) {
+            $attributes = $ref->getAttributes(RateLimit::class);
+            if (empty($attributes)) {
+                continue;
+            }
+            $attr = $attributes[0]->newInstance();
+            return [
+                'max' => $attr->max,
+                'window' => $attr->window,
+                'scope' => $attr->scope,
+                'scene' => $attr->scene,
+            ];
+        }
+        return [];
     }
 }

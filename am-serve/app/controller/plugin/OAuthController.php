@@ -4,8 +4,8 @@ namespace app\controller\plugin;
 
 use app\basic\BaseController;
 use app\model\plugin\App as Plugin;
-use app\service\OAuthService;
-use app\service\PluginManifestService;
+use app\service\auth\OAuthService;
+use app\service\plugin\PluginManifestService;
 use support\annotation\route\Get;
 use support\annotation\route\Post;
 use support\Request;

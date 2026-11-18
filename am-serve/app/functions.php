@@ -105,7 +105,7 @@ if (!function_exists('currentDataScope')) {
     /** 当前用户的数据可见范围解析结果 {all, self, dept_ids} */
     function currentDataScope(): array
     {
-        return \app\service\DataScopeService::resolve(currentUserId());
+        return \app\service\auth\DataScopeService::resolve(currentUserId());
     }
 }
 
@@ -731,7 +731,7 @@ if(!function_exists('authEntry')){
         $name = (string) env('SSO_MEMBER_APP', 'am_member');
         $plugin = \app\model\plugin\App::where('name', $name)->where('status', 1)->find();
         $entry = $plugin
-            ? trim((string)(\app\service\PluginManifestService::getManifest($plugin)['entry'] ?? ''))
+            ? trim((string)(\app\service\plugin\PluginManifestService::getManifest($plugin)['entry'] ?? ''))
             : '';
         return rtrim($entry !== '' ? $entry : '/app/' . $name, '/');
     }

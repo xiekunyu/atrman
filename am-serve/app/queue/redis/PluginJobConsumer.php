@@ -2,7 +2,9 @@
 
 namespace app\queue\redis;
 
-use app\service\QueueService;
+use app\service\system\AlertService;
+use app\service\system\ObservabilityService;
+use app\service\support\QueueService;
 use support\Log;
 use support\Redis;
 use Throwable;
@@ -80,6 +82,15 @@ class PluginJobConsumer implements Consumer
             'package' => $package,
             'error' => $e->getMessage(),
         ]);
+        // 同 SendNotifyJob：计数每次回调都写，webhook 仅在消息真正进 DLQ（fail）时发
+        $result = ObservabilityService::recordJobFailure($this->queue, (array)$package);
+        if ($result === 'fail') {
+            AlertService::send('queue.' . $this->queue . '.dlq', [
+                'error' => $e->getMessage(),
+                'attempts' => (int)($package['attempts'] ?? 0) + 1,
+                'max_attempts' => (int)($package['max_attempts'] ?? 0),
+            ]);
+        }
     }
 
     /** 抢占去重键（SETNX + TTL） */

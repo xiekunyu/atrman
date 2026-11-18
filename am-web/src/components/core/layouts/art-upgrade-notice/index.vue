@@ -57,7 +57,7 @@
   /** 提醒状态存储键（以目标版本为维度）与稍后提醒间隔（3 小时） */
   const STORE_KEY = 'atrman:sys-upgrade-notice'
   const SNOOZE_MS = 3 * 60 * 60 * 1000
-  const SYSTEM_INFO_PATH = '/system/info'
+  const SYSTEM_INFO_PATH = '/ops/info'
   let snoozeTimer: ReturnType<typeof setTimeout> | null = null
 
   type NoticeState = { version: string; action: 'mute' | 'snooze'; ts: number }

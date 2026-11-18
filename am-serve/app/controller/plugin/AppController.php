@@ -8,12 +8,13 @@ use app\model\plugin\App as Plugin;
 use app\model\system\File;
 use app\model\system\User;
 use app\utils\Directory;
-use app\service\FileService;
-use app\service\Permission;
-use app\service\PluginManager;
-use app\service\PluginManifestService;
-use app\service\PluginComposerService;
-use app\service\StoreService;
+use app\service\storage\FileService;
+use app\attribute\Permission;
+use app\service\plugin\PluginManager;
+use app\service\plugin\PluginManifestService;
+use app\service\plugin\PluginComposerService;
+use app\service\plugin\RestoreManifestService;
+use app\service\plugin\StoreService;
 use support\annotation\route\Get;
 use support\annotation\route\Post;
 use support\Log;
@@ -537,6 +538,8 @@ class AppController extends BaseController
     #[Permission(title: '安装插件包', slug: 'system:plugin:installPackage')]
     public function installPackage(Request $request): Response
     {
+        // 本地包安装可向 plugin 目录落任意代码，权限实质等于服务器部署权：RBAC 之外再收口超管
+        $this->assertLocalPackageSuperAdmin();
         $overwrite = (bool)$request->post('overwrite', false);
         $file = $request->file('file');
         if ($file) {
@@ -578,6 +581,10 @@ class AppController extends BaseController
     #[Permission(title: '恢复插件备份', slug: 'system:plugin:installPackage')]
     public function restorePackage(Request $request): Response
     {
+        // 恢复备份同样可向 plugin 目录落任意代码，与本地安装同档收口到超管
+        $this->assertLocalPackageSuperAdmin();
+        $allowLegacy = trim((string)$request->post('confirm', '')) === RestoreManifestService::LEGACY_CONFIRM;
+
         $file = $request->file('file');
         if ($file) {
             if (!$file->isValid()) {
@@ -586,7 +593,16 @@ class AppController extends BaseController
             if (strtolower($file->getUploadExtension()) !== 'zip') {
                 return warning('仅支持 zip 插件备份包');
             }
-            $result = PluginManager::restorePackage($file->getPathname());
+            $zipPath = $file->getPathname();
+            try {
+                $result = PluginManager::restorePackage($zipPath, $allowLegacy);
+            } catch (\Throwable $e) {
+                // 验签/恢复失败：直接上传的临时包立即清除，被篡改包不得残留在临时目录
+                if (is_file($zipPath)) {
+                    @unlink($zipPath);
+                }
+                throw $e;
+            }
             $this->refreshComposerSnapshot((string)($result['plugin'] ?? ''));
             return success('恢复备份成功', $result);
         }
@@ -597,9 +613,23 @@ class AppController extends BaseController
         }
 
         $zipPath = $this->getPackageFilePath($fileId);
-        $result = PluginManager::restorePackage($zipPath);
+        $result = PluginManager::restorePackage($zipPath, $allowLegacy);
         $this->refreshComposerSnapshot((string)($result['plugin'] ?? ''));
         return success('恢复备份成功', $result);
+    }
+
+    /**
+     * 本地包安装 / 备份恢复的超管闸门。
+     *
+     * 这两个动作都能向 plugin 目录落任意 PHP 代码，权限实质等于服务器部署权，
+     * 仅靠 RBAC slug 收口不够（slug 可被授给任意角色）：这里在权限节点之外再硬性
+     * 限定 id===1 超级管理员，与全仓 isSuperAdmin() 口径一致。
+     */
+    protected function assertLocalPackageSuperAdmin(): void
+    {
+        if (!isSuperAdmin()) {
+            throw new ApiException('本地安装包安装与备份恢复仅限超级管理员操作（该权限实质等于服务器部署权）', 403);
+        }
     }
 
     /**

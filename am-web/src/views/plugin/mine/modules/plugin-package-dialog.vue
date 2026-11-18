@@ -281,6 +281,81 @@
     }
   }
 
+  /** 后端 PluginManager 对未签名备份包的专用拒绝码（HTTP 语义 423 Locked） */
+  const UNSIGNED_PACKAGE_CODE = 423
+  const LEGACY_UNSIGNED = 'LEGACY_UNSIGNED'
+  const RESTORE_PHRASE = '确认恢复'
+
+  /**
+   * 安装二次确认：本地安装可向 plugin 目录落任意代码，权限等同服务器部署，
+   * 要求手工输入预检得到的插件标识，避免一键误装。
+   */
+  const confirmInstallByName = async (): Promise<boolean> => {
+    const name = String(inspectInfo.value?.plugin?.name || '')
+    try {
+      await ElMessageBox.prompt(
+        `本地安装包会写入服务器插件目录，权限实质等同于服务器部署。请输入插件标识「${name}」确认继续：`,
+        '安装二次确认（仅限超级管理员）',
+        {
+          confirmButtonText: '确认安装',
+          cancelButtonText: '取消',
+          type: 'warning',
+          inputPlaceholder: name,
+          inputValidator: (value: string) =>
+            (value || '').trim() === name || '输入的插件标识与预检结果不一致'
+        }
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** 恢复二次确认：要求手工输入确认语，比单次勾选更能防误触 */
+  const confirmRestoreByPhrase = async (): Promise<boolean> => {
+    try {
+      await ElMessageBox.prompt(
+        '恢复会执行备份包内 restore.sql，可能覆盖插件菜单、配置、小部件和业务表数据，且备份包含可执行代码。请输入「确认恢复」继续：',
+        '恢复二次确认（仅限超级管理员）',
+        {
+          confirmButtonText: '确认恢复',
+          cancelButtonText: '取消',
+          type: 'warning',
+          inputPlaceholder: RESTORE_PHRASE,
+          inputValidator: (value: string) =>
+            (value || '').trim() === RESTORE_PHRASE || '请原样输入确认语'
+        }
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * 未签名历史包的显式放行：后端 423 后要求输入 LEGACY_UNSIGNED，
+   * 并明示该动作会强制写安全审计（包哈希、操作者、IP）。
+   */
+  const confirmLegacyUnsigned = async (reason: string): Promise<boolean> => {
+    try {
+      await ElMessageBox.prompt(
+        `${reason}\n恢复未签名包将被强制记录安全审计（含包 sha256、操作者与来源 IP）。如确认来源可信，请输入 ${LEGACY_UNSIGNED} 放行：`,
+        '未签名备份包放行确认',
+        {
+          confirmButtonText: '仍要恢复',
+          cancelButtonText: '取消',
+          type: 'error',
+          inputPlaceholder: LEGACY_UNSIGNED,
+          inputValidator: (value: string) =>
+            (value || '').trim() === LEGACY_UNSIGNED || `请原样输入 ${LEGACY_UNSIGNED}`
+        }
+      )
+      return true
+    } catch {
+      return false
+    }
+  }
+
   const handleSubmit = async () => {
     if (!selectedFile.value) {
       ElMessage.warning(packageMode.value === 'restore' ? '请选择插件备份包' : '请选择插件安装包')
@@ -294,22 +369,36 @@
       return
     }
 
-    if (packageMode.value === 'restore') {
-      try {
-        await ElMessageBox.confirm(
-          '确定执行该备份包中的 restore.sql 吗？本操作不会执行 install.sql 或 migrations，但可能覆盖相关数据。',
-          '恢复确认',
-          { type: 'warning' }
-        )
-      } catch {
-        return
-      }
+    // 文本输入式二次确认（安装=插件标识，恢复=确认语），取消即中止
+    const confirmed =
+      packageMode.value === 'restore' ? await confirmRestoreByPhrase() : await confirmInstallByName()
+    if (!confirmed) {
+      return
     }
 
     loading.value = true
     try {
       if (packageMode.value === 'restore') {
-        await pluginApi.restorePackage({ file_id: selectedFile.value.id })
+        try {
+          // 首次不带 confirm：签名包直接通过；未签名历史包由后端以 423 拒绝，
+          // 静默拦截器默认弹窗，改由下面的专用输入框承载原因与放行入口
+          await pluginApi.restorePackage(
+            { file_id: selectedFile.value.id },
+            { showErrorMessage: false }
+          )
+        } catch (error: any) {
+          if (error?.code !== UNSIGNED_PACKAGE_CODE) {
+            ElMessage.error(error?.message || '备份恢复失败')
+            return
+          }
+          if (!(await confirmLegacyUnsigned(String(error?.message || '该备份包缺少数字签名')))) {
+            return
+          }
+          await pluginApi.restorePackage({
+            file_id: selectedFile.value.id,
+            confirm: LEGACY_UNSIGNED
+          })
+        }
       } else {
         const res: any = await pluginApi.installPackage({
           file_id: selectedFile.value.id,

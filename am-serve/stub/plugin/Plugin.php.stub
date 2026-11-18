@@ -28,7 +28,7 @@ class Plugin extends BasePlugin
      */
     public function boot(array $plugin = []): void
     {
-        // \app\service\IdentityService::registerProvider(\app\utils\Hashids::TYPE_GROUP, function (array $sids): array {
+        // \app\service\auth\IdentityService::registerProvider(\app\utils\Hashids::TYPE_GROUP, function (array $sids): array {
         //     return []; // [sid => ['sid','type','name','avatar',...]]
         // });
     }
@@ -70,7 +70,7 @@ class Plugin extends BasePlugin
         //     'app_name'    => '{{name}}',
         //     'name'        => '示例页面',
         //     'code'        => '{{name}}:demo',
-        //     'parent_code' => \app\service\PluginManager::entryCode('{{name}}'),
+        //     'parent_code' => \app\service\plugin\PluginManager::entryCode('{{name}}'),
         //     'type'        => 2,
         //     'path'        => '/demo',              // 相对父级，MenuProcessor 会拼成完整路径
         //     'component'   => 'demo/index',         // 映射 src/views{component}.vue

@@ -25,10 +25,10 @@ class AdapterRegistry
      */
     private static array $adapters = [
         'local' => \Tinywan\Storage\Adapter\LocalAdapter::class,
-        'oss' => \app\service\upload\adapter\OssAdapter::class,
-        'qiniu' => \app\service\upload\adapter\QiniuAdapter::class,
-        'cos' => \app\service\upload\adapter\CosAdapter::class,
-        's3' => \app\service\upload\adapter\S3Adapter::class,
+        'oss' => \app\service\storage\adapter\OssAdapter::class,
+        'qiniu' => \app\service\storage\adapter\QiniuAdapter::class,
+        'cos' => \app\service\storage\adapter\CosAdapter::class,
+        's3' => \app\service\storage\adapter\S3Adapter::class,
     ];
 
     /**

@@ -17,6 +17,8 @@ return [
         app\middleware\InstallGuard::class,
         // 主程序升级维护门（升级任务执行期间拦截业务请求）
         app\middleware\SystemMaintenance::class,
+        // 框架级全局限流（注解阈值 + 写接口默认阈值，Redis 故障 fail-open；位置先于 AuthCheck）
+        app\middleware\RateLimit::class,
         app\middleware\PluginStatusCheck::class,
         app\middleware\AuthCheck::class,
         app\middleware\OperateLog::class,

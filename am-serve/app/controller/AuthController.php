@@ -17,6 +17,10 @@ use app\utils\ClientInfo;
 use support\Redis;
 use tinywan\jwt\JwtToken;
 use app\basic\BaseController;
+use app\service\auth\LoginThrottleService;
+use app\attribute\RateLimit;
+use app\service\auth\TokenService;
+use support\Log;
 use support\think\Cache;
 use Webman\Event\Event;
 
@@ -26,7 +30,7 @@ class AuthController extends BaseController
      /**
      * 不需要登录的方法
      */
-    protected array $noNeedLogin = ['captcha', 'login'];
+    protected array $noNeedLogin = ['captcha', 'login', 'refresh'];
 
     /** 登录失败计数 key 前缀（按 IP+账号 分桶，避免单账号被锁死全站） */
     private const FAIL_KEY_PREFIX = 'atrman:auth:login:fail:';
@@ -44,8 +48,12 @@ class AuthController extends BaseController
      * 获取验证码
      */
     #[Post('/captcha')]
-    public function captcha() : Response
+    // 已有 LoginThrottleService 专属 IP 频控，显式跳过全局限流避免重复计数
+    #[RateLimit(max: 0)]
+    public function captcha(Request $request) : Response
     {
+        // 公开端点频控：60s 内每 IP 最多 10 次，防验证码接口被刷（Redis 故障时 fail-open）
+        LoginThrottleService::assertIpRateLimited('captcha-base', ClientInfo::clientIp($request));
         $captcha = new Captcha();
         $result = $captcha->imageCaptcha();
         if ($result['result'] !== 1) {
@@ -60,6 +68,8 @@ class AuthController extends BaseController
      * @return Response
      */
     #[Post('/login')]
+    // 登录失败锁定走控制器内 IP+账号计数，全局限流不重复计数
+    #[RateLimit(max: 0)]
     public function login(Request $request): Response
     {
         $username = $request->post('username', '');
@@ -115,7 +125,6 @@ class AuthController extends BaseController
             // is_admin 为便捷标记（由身份类别 account_type 得出，超管 id=1 恒为真）；
             // 能否操作后台具体功能仍由 RBAC 角色决定，权威判定以查库为准。
             'is_admin' => (int) $userInfo->id === 1 || (int) $userInfo->account_type === \app\model\system\User::ACCOUNT_ADMIN,
-            'exp' => time() + 7200,
             // 会话标识：退出登录时按它写吊销名单（见 JwtRevoker）。access/refresh 共用一个，退出即整对失效。
             'jti' => Str::random(16),
         ];
@@ -149,6 +158,17 @@ class AuthController extends BaseController
         return success('退出登录成功');
     }
 
+    /**
+     * 刷新令牌：refresh_token 放 Authorization: Bearer 头。
+     * 校验签名/有效期/旧 jti 未吊销后签发新令牌对并吊销旧 jti（双令牌轮转，见 TokenService）。
+     */
+    #[Post('/refresh')]
+    public function refresh(Request $request): Response
+    {
+        $refreshToken = (string) $request->header('authorization', '');
+        return success('刷新成功', TokenService::rotate($refreshToken));
+    }
+
     public function info(Request $request)
     {
         $token = $request->header('token');
@@ -165,7 +185,8 @@ class AuthController extends BaseController
     {
         try {
             return (int) Redis::get($key);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            Log::warning('[登录防爆破] 失败计数读取失败（fail-open 视为 0）：' . $e->getMessage());
             return 0;
         }
     }
@@ -178,7 +199,8 @@ class AuthController extends BaseController
             if ($count === 1 || (int) Redis::ttl($key) < 0) {
                 Redis::expire($key, self::FAIL_WINDOW);
             }
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            Log::warning('[登录防爆破] 失败计数写入失败（fail-open，本次失败不计入）：' . $e->getMessage());
         }
     }
 
@@ -186,7 +208,8 @@ class AuthController extends BaseController
     {
         try {
             Redis::del($key);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            Log::warning('[登录防爆破] 失败计数清理失败（fail-open，不影响登录）：' . $e->getMessage());
         }
     }
 

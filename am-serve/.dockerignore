@@ -1,0 +1,21 @@
+# 镜像构建排除项：.env 绝不进镜像（配置由 compose 环境变量注入），
+# vendor 由多阶段构建在镜像内按 linux 环境重装，runtime 本地日志/缓存不带走。
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+vendor
+runtime
+secrets
+.idea
+.vscode
+tests
+*.log
+*.zip
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md
+windows.bat
+windows.php

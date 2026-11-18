@@ -77,6 +77,13 @@ export const staticRoutes: AppRouteRecordRaw[] = [
     component: () => import('@views/exception/403/index.vue'),
     meta: { title: '403', isHideTab: true }
   },
+  // 运维管理目录迁移：旧 /system/* 书签与历史链接重定向到 /ops/*，须置于 404 通配符之前
+  { path: '/system/log', redirect: '/ops/log' },
+  { path: '/system/loginLog', redirect: '/ops/loginLog' },
+  { path: '/system/cache', redirect: '/ops/cache' },
+  { path: '/system/server', redirect: '/ops/server' },
+  { path: '/system/backup', redirect: '/ops/backup' },
+  { path: '/system/info', redirect: '/ops/info' },
   {
     path: '/:pathMatch(.*)*',
     name: 'Exception404',
