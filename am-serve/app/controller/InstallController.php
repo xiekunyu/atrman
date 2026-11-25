@@ -85,7 +85,7 @@ class InstallController
             'database' => $config['db_name'],
             'username' => $config['db_user'],
             'password' => $config['db_password'] ?? '',
-            'prefix' => $config['db_prefix'] ?? 'am_',
+            'prefix' => 'am_',
         ]);
 
         return $result['success']
@@ -128,7 +128,7 @@ class InstallController
             'database' => $config['db_name'] ?? '',
             'username' => $config['db_user'] ?? '',
             'password' => $config['db_password'] ?? '',
-            'prefix' => $config['db_prefix'] ?? 'am_',
+            'prefix' => 'am_',
         ]);
 
         return success('', $result);
@@ -160,7 +160,6 @@ class InstallController
             'db_name' => $config['db_name'],
             'db_user' => $config['db_user'],
             'db_password' => $config['db_password'] ?? '',
-            'db_prefix' => $config['db_prefix'] ?? 'am_',
             'db_charset' => 'utf8mb4',
             'redis_host' => $config['redis_host'],
             'redis_port' => $config['redis_port'] ?? '6379',

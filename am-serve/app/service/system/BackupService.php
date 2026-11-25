@@ -2,6 +2,7 @@
 
 namespace app\service\system;
 
+use app\database\SqlMigrationWrapper;
 use app\service\storage\FileService;
 use app\service\storage\UploadService;
 use app\service\plugin\PluginManager;
@@ -118,11 +119,20 @@ class BackupService
         $menuRows = DatabaseService::pluginMenuRows($name);
         $widgetRows = DatabaseService::pluginWidgetRows($name);
         $pluginTables = DatabaseService::pluginTableSnapshotsByNames($businessTables);
+        // 台账记录随备份导出：恢复时 deletePluginRestoreData 会清空台账，若不导出，
+        // 恢复后升级会重跑迁移（DSL 迁移非幂等会失败）。剔除 phinx_version 保证备份
+        // 也能恢复到旧版本站点（无此列），新站点由 ensureBaseline 自动回填。
+        $migrationRows = Migration::where('app_name', $name)->select()->toArray();
+        foreach ($migrationRows as &$row) {
+            unset($row['phinx_version']);
+        }
+        unset($row);
+        $migrationSql = DatabaseService::rowsToReplaceSql((new Migration())->getTable(), $migrationRows);
         $systemConfigSql = DatabaseService::pluginConfigRowsToMigrationSql($name, $configRows, true);
         $systemMenuSql = DatabaseService::pluginMenuRowsToMigrationSql($name, $menuRows);
         $pluginWidgetSql = DatabaseService::pluginWidgetRowsToMigrationSql($name, $widgetRows);
         $pluginTablesSql = DatabaseService::pluginTablesToSql($pluginTables, true);
-        $restoreSql = self::buildRestoreSql($plugin, [$systemConfigSql, $systemMenuSql, $pluginWidgetSql, $pluginTablesSql]);
+        $restoreSql = self::buildRestoreSql($plugin, [$systemConfigSql, $systemMenuSql, $pluginWidgetSql, $migrationSql, $pluginTablesSql]);
 
         $summary = [
             'plugin' => $name,
@@ -147,6 +157,7 @@ class BackupService
                 'system_config' => $systemConfigSql,
                 'system_menu' => $systemMenuSql,
                 'plugin_widget' => $pluginWidgetSql,
+                'system_migration' => $migrationSql,
                 'plugin_tables' => $pluginTablesSql,
                 'restore' => $restoreSql,
             ],
@@ -313,48 +324,53 @@ class BackupService
         ));
     }
 
+    /** 执行插件升级迁移：legacy SQL pending 清单经包装执行；新式 PHP 迁移目录由 Phinx 按台账判重执行。 */
     public static function executeUpgradeMigrations(Plugin $plugin, string $currentVersion, string $targetVersion, string $pluginRoot): void
     {
         $migrations = self::getPendingMigrations((string)$plugin->name, $currentVersion, $targetVersion, $pluginRoot);
-        if (!$migrations) {
+        $phpDir = $pluginRoot . '/database/migrations';
+        if (!$migrations && !is_dir($phpDir)) {
             return;
         }
-        $batch = (int)Migration::where('app_name', $plugin->name)
-            ->where('migration_type', Migration::TYPE_PLUGIN)
-            ->max('batch') + 1;
-        foreach ($migrations as $migration) {
-            try {
-                DatabaseService::executeSqlFile($migration['path']);
-                self::saveMigrationRecord($plugin, $migration, $currentVersion, $targetVersion, $batch, Migration::STATUS_SUCCESS);
-            } catch (\Throwable $e) {
-                self::saveMigrationRecord($plugin, $migration, $currentVersion, $targetVersion, $batch, Migration::STATUS_FAILED, $e->getMessage());
-                throw $e;
-            }
-        }
-    }
-
-    protected static function saveMigrationRecord(Plugin $plugin, array $migration, string $currentVersion, string $targetVersion, int $batch, int $status, string $errorMessage = ''): void
-    {
-        $record = Migration::where('app_name', $plugin->name)
-            ->where('migration_type', Migration::TYPE_PLUGIN)
-            ->where('migration', $migration['migration'])
-            ->find();
-        if (!$record) {
-            $record = new Migration();
-        }
-        $record->save([
-            'app_name' => $plugin->name,
+        $context = [
             'migration_type' => Migration::TYPE_PLUGIN,
-            'version' => $migration['version'],
-            'migration' => $migration['migration'],
-            'checksum' => $migration['checksum'],
             'from_version' => $currentVersion,
             'to_version' => $targetVersion,
-            'batch' => $batch,
-            'status' => $status,
-            'error_message' => $errorMessage,
-            'executed_at' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+
+        if ($migrations) {
+            $files = array_map(static fn(array $m): array => [
+                'sql_path' => $m['path'],
+                'original_name' => $m['migration'],
+                'semantic_version' => $m['version'],
+            ], $migrations);
+
+            $workRoot = runtime_path() . '/plugin_migrations';
+            $dir = $workRoot . '/' . $plugin->name . '_' . bin2hex(random_bytes(4));
+            Directory::ensureDir($dir);
+            try {
+                $prefix = (string)(config('think-orm.connections.mysql.prefix') ?: env('DB_PREFIX', 'am_'));
+                $map = SqlMigrationWrapper::wrap($files, $dir, PhinxService::SCOPE_PLUGIN, $prefix);
+                $result = PhinxService::migrate((string)$plugin->name, [$dir], $context + [
+                    'ledger_map' => $map,
+                    'files' => $files,
+                ]);
+                if ($result['exit'] !== 0) {
+                    throw new ApiException('插件迁移执行失败：' . PhinxService::logTail($result['log']));
+                }
+            } finally {
+                if (is_dir($dir)) {
+                    Directory::removeDirWithin($dir, $workRoot);
+                }
+            }
+        }
+
+        if (is_dir($phpDir)) {
+            $result = PhinxService::migrate((string)$plugin->name, [$phpDir], $context);
+            if ($result['exit'] !== 0) {
+                throw new ApiException('插件迁移执行失败：' . PhinxService::logTail($result['log']));
+            }
+        }
     }
 
     // ────────────────────────────────────────────────────

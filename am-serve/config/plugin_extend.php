@@ -32,14 +32,14 @@ return [
      *   composer_bin      composer 可执行文件（绝对路径或 composer.phar），默认自动探测 PATH 上的 composer
      *   composer_home     composer 家目录（缓存/config 存放）；worker 无 HOME 时必需，留空=系统临时目录
      *   composer_timeout  单次安装最长秒数，超时主动 kill
-     *   composer_allowlist 包前缀白名单（如 ["tinywan/","topthink/"]）；空=一律拒绝（fail-closed），
-     *                     开启 composer_enabled 前必须先填，否则插件与主程序依赖都装不上
+     *   composer_allowlist 包前缀白名单（如 ["tinywan/","topthink/"]）；空=一律拒绝（fail-closed）。
+     *                     仅约束插件声明的依赖；主程序升级安装签名包声明的依赖不校验白名单
      */
-    'composer_enabled' => false,
+    'composer_enabled' => true,
     'composer_bin' => 'composer',
     'composer_home' => '',
-    'composer_timeout' => 600,
-    'composer_allowlist' => [],
+    'composer_timeout' => 300,
+    'composer_allowlist' => ['robmorgan/', 'webman/'],
 
     /**
      * 服务接管点声明（默认实现类 FQN 列表，须实现 ServiceProviderInterface，

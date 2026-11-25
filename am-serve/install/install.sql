@@ -356,17 +356,18 @@ CREATE TABLE `am_system_menu` (
 -- 表的结构 `am_system_migration`
 --
 
-CREATE TABLE `am_system_migration` (
+CREATE TABLE IF NOT EXISTS `am_system_migration` (
   `id` int NOT NULL AUTO_INCREMENT,
   `app_name` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '应用标识，系统为system',
   `migration_type` tinyint NOT NULL DEFAULT '1' COMMENT '迁移类型：1插件迁移，2系统迁移',
   `version` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '迁移版本',
   `migration` varchar(160) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '迁移文件名',
+  `phinx_version` bigint NOT NULL DEFAULT '0' COMMENT 'Phinx确定性时间戳版本',
   `checksum` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '迁移文件校验值',
   `from_version` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '升级前版本',
   `to_version` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '升级后版本',
   `batch` int NOT NULL DEFAULT '0' COMMENT '迁移批次',
-  `status` tinyint NOT NULL DEFAULT '1' COMMENT '状态：1成功，-1失败',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT '状态：0标记，1成功，-1失败',
   `error_message` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '异常信息',
   `executed_at` datetime DEFAULT NULL COMMENT '执行时间',
   `created_by` int DEFAULT '0' COMMENT '创建人',
@@ -378,7 +379,8 @@ CREATE TABLE `am_system_migration` (
   UNIQUE KEY `uniq_system_migration` (`app_name`,`migration`),
   KEY `idx_app_version` (`app_name`,`version`),
   KEY `idx_migration_type` (`migration_type`),
-  KEY `idx_status` (`status`)
+  KEY `idx_status` (`status`),
+  KEY `idx_app_phinx_version` (`app_name`,`phinx_version`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统迁移记录表';
 
 -- --------------------------------------------------------

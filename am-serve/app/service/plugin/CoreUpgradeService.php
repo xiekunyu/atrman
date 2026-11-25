@@ -2,11 +2,12 @@
 
 namespace app\service\plugin;
 
+use app\database\SqlMigrationWrapper;
 use app\service\storage\FileService;
 use app\service\support\PushService;
 use app\service\support\QueueService;
 use app\service\system\BackupService;
-use app\service\system\DatabaseService;
+use app\service\system\PhinxService;
 use app\exception\ApiException;
 use app\model\system\Migration;
 use app\utils\Directory;
@@ -59,8 +60,12 @@ class CoreUpgradeService
     /** 任务/日志快照 TTL（秒） */
     private const TTL = 3600;
 
-    /** 锁 TTL（秒），需覆盖备份 + 多包 + composer 最长耗时；任务运行中由 emitLine 心跳续期 */
-    private const LOCK_TTL = 3600;
+    /** 锁 TTL（秒）：短 TTL + 60s 心跳续期。进程挂死/被杀停止续期时锁自动过期，
+        维护标记经 isMaintaining 自愈解除，站点不会长时间卡在维护模式 */
+    private const LOCK_TTL = 120;
+
+    /** 单次升级总预算（秒）：超时触发快速恢复（释放锁 + 解除维护 + 提示人工处置） */
+    private const UPGRADE_TIMEOUT = 300;
 
     /**
      * 维护标记兜底 TTL（秒）：与锁 TTL 对齐。
@@ -95,6 +100,12 @@ class CoreUpgradeService
 
     /** 最近一次锁续期时间戳（心跳节流用） */
     private static int $lastTouch = 0;
+
+    /** 当前任务截止时间戳（0=未设置；恢复阶段置 PHP_INT_MAX 豁免预算） */
+    private static int $deadline = 0;
+
+    /** 是否触发超时恢复路径 */
+    private static bool $timedOut = false;
 
     /** 日志行保留上限 */
     private const LOG_CAP = 500;
@@ -229,7 +240,7 @@ class CoreUpgradeService
                     $packages
                 ))),
             ],
-            'env' => PluginComposerService::probeEnv($composer),
+            'env' => PluginComposerService::probeEnv($composer, true),
         ];
     }
 
@@ -389,6 +400,9 @@ class CoreUpgradeService
         }
         self::$lockToken = (string)($payload['lock_token'] ?? '');
         self::$lastTouch = time();
+        self::$deadline = time() + self::UPGRADE_TIMEOUT;
+        self::$timedOut = false;
+        self::assertAlive();
         $backupId = 0;
         $rollbackOk = false;
         $error = null;
@@ -427,22 +441,29 @@ class CoreUpgradeService
                 : self::runSequential($packages, $current, $jobId, $channel, $workDir);
 
             // 4. 版本落库（manifest.json 唯一写入点，顺带清理 .env 残键）
+            self::assertAlive();
             self::updateSnapshot($jobId, ['phase' => 'version', 'message' => '正在写入版本号']);
             self::persistVersion($target, $jobId, $channel, $preDir);
 
             // 5. 收尾前置：先解除维护并落定成功状态，再触发重载
             self::exitMaintenance();
+            // 依赖安装失败不中止升级，但完成提示必须带上手动补装指引
+            $snapRaw = Redis::get(self::SNAP_PREFIX . $jobId);
+            $snapData = $snapRaw ? (json_decode($snapRaw, true) ?: []) : [];
+            $composerWarning = (string)($snapData['composer_warning'] ?? '');
             self::updateSnapshot($jobId, [
                 'status' => 'success',
                 'phase' => 'done',
                 'target_version' => $target,
                 'need_restart' => $needRestart,
-                'message' => '主程序已升级到 ' . $target . ($needRestart ? '，正在重载服务生效' : '，本次无需重启'),
+                'message' => '主程序已升级到 ' . $target . ($needRestart ? '，正在重载服务生效' : '，本次无需重启')
+                    . ($composerWarning !== '' ? '。【注意】' . $composerWarning : ''),
             ]);
             self::push($channel, 'done', [
                 'status' => 'success',
                 'target_version' => $target,
                 'need_restart' => $needRestart,
+                'warning' => $composerWarning,
             ]);
             self::emitLine('升级完成：' . $current . ' → ' . $target, $channel, $jobId);
             Log::info('[CoreUpgrade] 升级成功 job=' . $jobId . ' ' . $current . ' → ' . $target);
@@ -464,7 +485,23 @@ class CoreUpgradeService
                 . ' @ ' . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString());
             self::emitLine('【失败】' . get_class($e) . ': ' . $e->getMessage(), $channel, $jobId);
             self::emitLine('出处 ' . $e->getFile() . ':' . $e->getLine(), $channel, $jobId);
+            self::$deadline = PHP_INT_MAX; // 恢复阶段不受升级预算约束
 
+            if (self::$timedOut) {
+                // 超时快速恢复：释放锁与维护，不做文件回滚（耗时且状态未知，交由人工处置）
+                self::exitMaintenance();
+                $timeoutMsg = '升级超时（超过 ' . self::UPGRADE_TIMEOUT . ' 秒），已自动释放升级锁并解除维护。'
+                    . '文件可能处于半升级状态，请立即用升级前备份 #' . $backupId . ' 恢复，或确认后重试升级。';
+                self::emitLine('【超时恢复】' . $timeoutMsg, $channel, $jobId);
+                self::updateSnapshot($jobId, [
+                    'status' => 'failed',
+                    'phase' => 'timeout',
+                    'rolled_back' => false,
+                    'backup_id' => $backupId,
+                    'message' => $timeoutMsg,
+                ]);
+                self::push($channel, 'done', ['status' => 'failed', 'rolled_back' => false, 'timeout' => true, 'message' => $timeoutMsg]);
+            } else {
             // 自动回滚：只还原本次真正改过的文件 + 撤销本次迁移记录。
             // 不自动整库还原：那会丢弃维护窗口内队列与后台写入的数据，且跨主版本会被兼容性校验拒绝。
             try {
@@ -514,7 +551,10 @@ class CoreUpgradeService
                 'rolled_back' => $rollbackOk,
                 'message' => $error->getMessage(),
             ]);
+            }
         } finally {
+            self::$deadline = 0;
+            self::$timedOut = false;
             // 收尾一律吞异常：任何清理失败都不得外逸，否则非幂等的升级任务会被队列重投重跑
             try {
                 if (is_dir($workDir)) {
@@ -955,80 +995,77 @@ class CoreUpgradeService
     // ───────────────────────────── 迁移与依赖 ─────────────────────────────
 
     /**
-     * 执行主程序迁移（相对基座根的 sql 文件），按 TYPE_SYSTEM 记录，已成功的跳过（幂等）。
-     * 本批真正执行过的脚本名记到工作目录，供失败回滚时撤销对应迁移记录。
+     * 执行主程序迁移：sql 文件经 SqlMigrationWrapper 包装后由 Phinx 执行并记账（判重幂等）。
+     * 本批执行过的脚本名记到工作目录，供失败回滚时撤销迁移记录。
      */
     protected static function runMigrations(array $migrations, string $from, string $to, string $jobId, string $channel, string $workDir = ''): void
     {
         if (!$migrations) {
             return;
         }
-        $batch = (int)Migration::where('app_name', self::CORE_NAME)
-            ->where('migration_type', Migration::TYPE_SYSTEM)
-            ->max('batch') + 1;
-
+        self::assertAlive();
+        $files = [];
+        $phpFiles = [];
         foreach ($migrations as $relative) {
             $safe = self::pathAllowed((string)$relative);
             if ($safe === '') {
                 throw new ApiException('迁移文件路径不合法：' . $relative);
             }
-            $name = basename($safe);
-            if (Migration::where('app_name', self::CORE_NAME)
-                ->where('migration_type', Migration::TYPE_SYSTEM)
-                ->where('migration', $name)
-                ->where('status', Migration::STATUS_SUCCESS)
-                ->count() > 0
-            ) {
-                self::emitLine('迁移已执行过，跳过：' . $name, $channel, $jobId);
-                continue;
-            }
-
             $path = base_path() . '/' . $safe;
             if (!is_file($path)) {
                 throw new ApiException('迁移文件不存在：' . $safe . '（升级包可能不完整）');
             }
-            try {
-                DatabaseService::executeSqlFile($path);
-                self::saveMigration($name, $safe, $from, $to, $batch, Migration::STATUS_SUCCESS);
-                self::recordAppliedMigration($workDir, $name);
-                self::emitLine('迁移执行成功：' . $name, $channel, $jobId);
-            } catch (\Throwable $e) {
-                self::saveMigration($name, $safe, $from, $to, $batch, Migration::STATUS_FAILED, $e->getMessage());
-                throw new ApiException('迁移执行失败（' . $name . '）：' . $e->getMessage());
+            $name = basename($safe);
+            if (str_ends_with(strtolower($name), '.php')) {
+                if (!preg_match('/^\d{14}_[A-Za-z0-9_]+\.php$/', $name)) {
+                    throw new ApiException('PHP 迁移文件名须为 {14位时间戳}_{类名}.php：' . $name);
+                }
+                $phpFiles[] = ['path' => $path, 'name' => $name];
+            } else {
+                $files[] = [
+                    'sql_path' => $path,
+                    'original_name' => $name,
+                    'semantic_version' => PhinxService::parseSqlVersion($name) ?: $to,
+                ];
             }
+        }
+
+        // PHP DSL 迁移原样复制直接执行；legacy SQL 包装（确定性时间戳保证重试幂等）
+        $dir = ($workDir !== '' ? $workDir : runtime_path() . '/core_migrations_' . bin2hex(random_bytes(4))) . '/migrations';
+        Directory::ensureDir($dir);
+        foreach ($phpFiles as $php) {
+            if (!copy($php['path'], $dir . '/' . $php['name'])) {
+                throw new ApiException('迁移文件复制失败：' . $php['name']);
+            }
+        }
+        $prefix = (string)(config('think-orm.connections.mysql.prefix') ?: env('DB_PREFIX', 'am_'));
+        $map = $files ? SqlMigrationWrapper::wrap($files, $dir, PhinxService::SCOPE_BASE, $prefix) : [];
+        $map += PhinxService::dslMap([$dir]);
+
+        $result = PhinxService::migrate('base', [$dir], [
+            'migration_type' => Migration::TYPE_SYSTEM,
+            'from_version' => $from,
+            'to_version' => $to,
+            'ledger_map' => $map,
+            'files' => $files,
+            'exec_timeout' => self::remainingBudget(),
+        ], [], '', false, static function (string $line) use ($jobId, $channel): void {
+            self::emitLine($line, $channel, $jobId);
+        });
+        if ($result['exit'] !== 0) {
+            throw new ApiException('迁移执行失败：' . PhinxService::logTail($result['log']));
+        }
+        foreach ($result['applied'] as $name) {
+            self::recordAppliedMigration($workDir, (string)$name);
+            self::emitLine('迁移执行成功：' . $name, $channel, $jobId);
         }
     }
 
-    /** 写迁移记录（TYPE_SYSTEM）。 */
-    protected static function saveMigration(string $name, string $relative, string $from, string $to, int $batch, int $status, string $error = ''): void
-    {
-        try {
-            $record = Migration::where('app_name', self::CORE_NAME)
-                ->where('migration_type', Migration::TYPE_SYSTEM)
-                ->where('migration', $name)
-                ->find();
-            if (!$record) {
-                $record = new Migration();
-            }
-            $record->save([
-                'app_name' => self::CORE_NAME,
-                'migration_type' => Migration::TYPE_SYSTEM,
-                'version' => $status === Migration::STATUS_SUCCESS ? $to : $from,
-                'migration' => $name,
-                'checksum' => '',
-                'from_version' => $from,
-                'to_version' => $to,
-                'batch' => $batch,
-                'status' => $status,
-                'error_message' => $error,
-                'executed_at' => date('Y-m-d H:i:s'),
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('[CoreUpgrade] 写迁移记录失败 ' . $name . '：' . $e->getMessage());
-        }
-    }
-
-    /** 在升级任务内同步安装声明的 composer 依赖（作用域=基座根 composer.json）。 */
+    /**
+     * 在升级任务内同步安装声明的 composer 依赖（作用域=基座根 composer.json）。
+     * 失败/超时不中止升级：程序文件照常升级完成，依赖可事后手动补装
+     * （PhinxService 有 legacy 兜底，未装 phinx 时迁移仍可用），给出醒目提示 + 手动命令。
+     */
     protected static function runComposer(array $requires, string $jobId, string $channel): void
     {
         if (!$requires) {
@@ -1039,17 +1076,41 @@ class CoreUpgradeService
             $declared[] = $constraint !== '' ? "$pkg:$constraint" : (string)$pkg;
         }
         self::emitLine('本步需安装依赖 ' . count($requires) . ' 个：' . implode(', ', $declared), $channel, $jobId);
+        self::assertAlive();
 
-        $exit = PluginComposerService::streamRequire(
-            $requires,
-            static function (string $line) use ($jobId, $channel): void {
-                CoreUpgradeService::emitLine($line, $channel, $jobId);
+        // composer 超时不得超过剩余升级预算；心跳保证无输出期间升级锁也续期
+        $budget = self::remainingBudget();
+        $timeout = $budget > 0 ? min((int)config('plugin_extend.composer_timeout', 600), $budget) : 0;
+        try {
+            $exit = PluginComposerService::streamRequire(
+                $requires,
+                static function (string $line) use ($jobId, $channel): void {
+                    CoreUpgradeService::emitLine($line, $channel, $jobId);
+                },
+                $timeout,
+                static function (): void {
+                    self::touchLock();
+                }
+            );
+            if ($exit !== 0) {
+                $reason = $exit === 124 ? 'composer 执行超时被终止' : 'composer 依赖安装失败（退出码 ' . $exit . '）';
+                self::composerWarning($requires, $jobId, $channel, $reason);
+                return;
             }
-        );
-        if ($exit !== 0) {
-            throw new ApiException('composer 依赖安装失败（退出码 ' . $exit . '），请查看上方输出');
+            self::emitLine('依赖安装完成。', $channel, $jobId);
+        } catch (\Throwable $e) {
+            // 开关未开/无 composer/proc_open 被禁/进程启动失败等：同样降级为提示，不中止升级
+            self::composerWarning($requires, $jobId, $channel, $e->getMessage());
         }
-        self::emitLine('依赖安装完成。', $channel, $jobId);
+    }
+
+    /** 依赖安装失败提示：进度日志 + 任务快照（完成页展示），附手动安装命令。 */
+    protected static function composerWarning(array $requires, string $jobId, string $channel, string $reason): void
+    {
+        $manual = PluginComposerService::manualCommand($requires);
+        $warning = '依赖未安装成功（' . $reason . '）。程序已升级，请在服务器手动执行：' . $manual;
+        self::emitLine('【注意】' . $warning, $channel, $jobId);
+        self::updateSnapshot($jobId, ['composer_warning' => $warning, 'manual_command' => $manual]);
     }
 
     // ───────────────────────────── 版本落库 ─────────────────────────────
@@ -1607,17 +1668,43 @@ class CoreUpgradeService
     /** 仅当锁仍属于本任务令牌时续期，避免误续他人锁。 */
     protected static function touchLock(): void
     {
+        // 预算检查不受心跳节流限制：超时立即中止任务（emitLine 高频调用，覆盖各步骤）
+        if (self::$deadline > 0 && time() > self::$deadline) {
+            self::$timedOut = true;
+            throw new ApiException('升级执行超过 ' . self::UPGRADE_TIMEOUT . ' 秒，触发超时恢复');
+        }
         if (self::$lockToken === '' || time() - self::$lastTouch < 60) {
             return;
         }
         self::$lastTouch = time();
         try {
-            if ((string)Redis::get(self::LOCK_KEY) === self::$lockToken) {
-                Redis::expire(self::LOCK_KEY, self::LOCK_TTL);
+            if ((string)Redis::get(self::LOCK_KEY) !== self::$lockToken) {
+                throw new ApiException('升级锁已失效或被其他任务取得，中止当前升级');
             }
+            Redis::expire(self::LOCK_KEY, self::LOCK_TTL);
+        } catch (ApiException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             // 忽略：续期失败最多导致锁提前释放，维护标记另有自愈
         }
+    }
+
+    /** 阶段边界断言：预算未超且锁仍由本任务持有（防僵尸任务在锁释放后继续改文件）。 */
+    protected static function assertAlive(): void
+    {
+        if (self::$deadline > 0 && time() > self::$deadline) {
+            self::$timedOut = true;
+            throw new ApiException('升级执行超过 ' . self::UPGRADE_TIMEOUT . ' 秒，触发超时恢复');
+        }
+        if (self::$lockToken !== '' && (string)Redis::get(self::LOCK_KEY) !== self::$lockToken) {
+            throw new ApiException('升级锁已失效或被其他任务取得，中止当前升级');
+        }
+    }
+
+    /** 剩余升级预算（秒）；未设预算返回 0（调用方按各自默认超时）。 */
+    protected static function remainingBudget(): int
+    {
+        return self::$deadline > 0 && self::$deadline < PHP_INT_MAX ? max(30, self::$deadline - time()) : 0;
     }
 
     /**

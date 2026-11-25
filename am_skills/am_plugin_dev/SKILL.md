@@ -26,7 +26,7 @@ Atrman 是技术栈中立的后台基座，业务全部以**插件**增量交付
 | 命名空间 | `app\...` | `plugin\{name}\app\...` |
 | 路由前缀 | `#[RouteGroup('/sys/{module}')]` | `#[RouteGroup('/app/{name}')]`，页面入口另在 `config/route.php` 手注 |
 | 权限 slug | `system:{module}:{action}` | `{name}:{module}:{action}`（如 `am_store:app:index`），冒号规则与 `v-auth` 不变 |
-| 数据表 | `system_{module}` | `{name}_{table}`，建表写在 `install.sql` 并用 `__PREFIX__` 占位 |
+| 数据表 | `system_{module}` | `{name}_{table}`；新插件推荐 `database/migrations/` PHP 迁移建表，legacy `install.sql` 用 `__PREFIX__` 占位 |
 | 缓存/队列等注册 | 直接注册 | 必须在 `Plugin::boot()` 注册且带 `owner`（见下）；菜单/权限/配置走生命周期钩子声明 |
 | 前端工程 | `am-web/` | 独立工作区 `am_frontends/{name}/`，页面分 `views/index`（公开）与 `views/manage`（后台）双入口；API/页面组件规范照用 |
 
@@ -94,6 +94,9 @@ Atrman 是技术栈中立的后台基座，业务全部以**插件**增量交付
 
 ### 数据与扩展边界
 
+- **数据库迁移（Phinx，单台账 system_migration）**：新插件推荐 `database/migrations/{14位时间戳}_{类名}.php`——安装与升级都自动执行、台账判重；时间戳用 `PhinxService::nextTimestamp(PhinxService::SCOPE_PLUGIN, 版本, 序号)` 生成（21 前缀）。优先 `change()` + DSL（可逆操作自动反向、表名自动加前缀）；复杂 DDL/DML 用 `up()/down()` + `execute()`（须同时提供反向）。
+- legacy 升级 SQL 放 `migrations/v{版本}_描述.sql`（**文件名必须以版本号开头**），升级自动扫描、按版本窗口 (当前, 目标] 过滤；SQL 必须幂等。两种风格不要对同一结构混用；`install.sql` 只在安装执行一次，升级别往里追加。
+- 迁移 SQL 逐语句过基座安全黑名单（禁库级操作/建账号/授权/服务端读写文件）；MySQL DDL 隐式提交，事务只保护 DML，DDL 回滚兜底靠备份/快照。
 - `install.sql` 只放**插件自有业务表 + 种子数据**：建表 `CREATE TABLE IF NOT EXISTS`，种子按自然键幂等 upsert；表前缀用 `__PREFIX__`（另有 `{{APP_ID}}`/`{{APP_NAME}}`/`{{APP_ENTRY_PATH}}` 占位符）。
 - **不要**把菜单/配置/权限/小部件 INSERT 写进 SQL，一律程序声明式写入（`PluginRegistrar::menu()`/`configSchema()` 等）。
 - **不要**手写 `app:entry:` 前缀的顶级入口菜单，基座 `PluginManager::syncEntry` 独占写入；子菜单 `parent_code` 用 `PluginManager::entryCode($name)`。

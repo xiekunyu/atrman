@@ -1,0 +1,27 @@
+<?php
+
+use Phinx\Migration\AbstractMigration;
+
+/**
+ * 插件迁移骨架。
+ *
+ * 命名：{14位时间戳}_{类名}.php，时间戳 = 21 + major(2) + minor(2) + patch(2) + 同版本内序号(6)
+ * 例：v1.0.0 第 1 个迁移 → 21010000000001（生成：PhinxService::nextTimestamp）
+ *
+ * 写法：优先 change() + DSL（可逆操作自动反向，表名自动加前缀）；
+ * 复杂 DDL/DML 用 up()/down() + execute()（必须提供反向，前缀经 getOption('table_prefix') 拼接）。
+ * 注意：MySQL DDL 隐式提交，事务只保护 DML；change() 内调原生 execute() 不可回滚。
+ */
+class InitialTables extends AbstractMigration
+{
+    public function change(): void
+    {
+        // 示例：创建插件业务表（表名自动加前缀，如 am_demo_item）
+        // $this->table('demo_item')
+        //     ->addColumn('name', 'string', ['limit' => 100])
+        //     ->addColumn('status', 'integer', ['default' => 1])
+        //     ->addColumn('create_time', 'integer', ['null' => true])
+        //     ->addIndex(['name'], ['unique' => true])
+        //     ->create();
+    }
+}

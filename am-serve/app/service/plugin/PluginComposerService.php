@@ -126,8 +126,8 @@ class PluginComposerService
         ];
     }
 
-    /** 探测运行环境（composer 是否安装/版本、proc_open、可写、开关、白名单）。 */
-    public static function probeEnv(array $requires = []): array
+    /** 探测运行环境（composer 是否安装/版本、proc_open、可写、开关、白名单）。trustedCore=核心升级包，豁免白名单预警。 */
+    public static function probeEnv(array $requires = [], bool $trustedCore = false): array
     {
         $procOpenOk = function_exists('proc_open') && !self::isFunctionDisabled('proc_open');
         // worker 进程 PATH 可能与终端不同（服务/计划任务启动、用户级 PATH 未继承），
@@ -136,9 +136,11 @@ class PluginComposerService
 
         $allowlist = (array)config('plugin_extend.composer_allowlist', []);
         $notAllowed = [];
-        foreach (array_keys($requires) as $pkg) {
-            if (!self::packageAllowed($pkg, $allowlist)) {
-                $notAllowed[] = $pkg;
+        if (!$trustedCore) {
+            foreach (array_keys($requires) as $pkg) {
+                if (!self::packageAllowed($pkg, $allowlist)) {
+                    $notAllowed[] = $pkg;
+                }
             }
         }
 
@@ -257,7 +259,7 @@ class PluginComposerService
             throw new ApiException('没有需要安装的依赖（均已满足）');
         }
         // 再过包白名单：filterTargets 只保证「插件自己声明过」，声明什么就装什么等于让插件方
-        // 指定任意包进基座 vendor。与 streamRequire（主程序路径）保持同一口径。
+        // 指定任意包进基座 vendor。（主程序升级路径 streamRequire 不校验白名单——签名包可信，口径不同。）
         $allowlist = (array)config('plugin_extend.composer_allowlist', []);
         if (!$allowlist) {
             throw new ApiException('plugin_extend.composer_allowlist 为空，在线安装一律拒绝；请先填入允许的包前缀（如 ["tinywan/","topthink/"]）');
@@ -419,7 +421,7 @@ class PluginComposerService
      * @param callable $onLine fn(string $line): void
      * @return int 退出码（0 成功）
      */
-    public static function streamRequire(array $requires, callable $onLine, int $timeout = 0): int
+    public static function streamRequire(array $requires, callable $onLine, int $timeout = 0, ?callable $heartbeat = null): int
     {
         if (!$requires) {
             return 0;
@@ -440,21 +442,19 @@ class PluginComposerService
             throw new ApiException('基座 vendor / composer.json 不可写，请检查服务器权限');
         }
 
-        // 白名单过滤：仅安装允许前缀内的包，防注入
-        $allowlist = (array)config('plugin_extend.composer_allowlist', []);
-        if (!$allowlist) {
-            throw new ApiException('plugin_extend.composer_allowlist 为空，无法在线安装主程序依赖，请先填白名单或手动执行：' . self::manualCommand($requires));
-        }
+        // 主程序升级直接安装声明的依赖，不校验白名单：升级包经 sha256 + 市场签名校验，
+        // 且 changed_files 本可覆盖任意基座代码，白名单（防插件注入的控制）在此不增加安全性；
+        // 校验反而造成死锁——新依赖的白名单前缀在新版配置里，而升级跑在旧站点。
+        // 插件声明依赖的路径仍走白名单（见 dispatchInstall）。
         $targets = [];
         foreach ($requires as $pkg => $constraint) {
             $pkg = trim((string)$pkg);
-            if ($pkg === '' || !self::packageAllowed($pkg, $allowlist)) {
-                continue;
+            if ($pkg !== '') {
+                $targets[$pkg] = is_string($constraint) ? trim($constraint) : (string)$constraint;
             }
-            $targets[$pkg] = is_string($constraint) ? trim($constraint) : (string)$constraint;
         }
         if (!$targets) {
-            $onLine('没有符合白名单的依赖需要安装，已跳过 composer 步骤。');
+            $onLine('没有需要安装的依赖，已跳过 composer 步骤。');
             return 0;
         }
 
@@ -478,7 +478,7 @@ class PluginComposerService
             $cmd = escapeshellarg($bin) . ' require' . $args
                 . ' -n --no-progress --no-interaction --with-all-dependencies 2>&1';
 
-            return self::runProcessInternal($cmd, $onLine, $timeout);
+            return self::runProcessInternal($cmd, $onLine, $timeout, $heartbeat);
         } finally {
             self::releaseLock();
         }
@@ -488,7 +488,7 @@ class PluginComposerService
      * 流式执行子进程的内部实现：每解析完一行回调 $onLine。
      * @return int 退出码（超时 kill 返回 124）
      */
-    protected static function runProcessInternal(string $cmd, callable $onLine, int $timeout): int
+    protected static function runProcessInternal(string $cmd, callable $onLine, int $timeout, ?callable $heartbeat = null): int
     {
         $nullDev = DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null';
         $descriptors = [
@@ -509,42 +509,56 @@ class PluginComposerService
         $deadline = time() + max(30, $timeout);
         $buffers = ['out' => '', 'err' => ''];
         $exitCode = null;
+        $lastBeat = time();
 
-        while (true) {
-            $status = proc_get_status($proc);
-            $read = [$stdout, $stderr];
-            $write = $except = null;
-            // 1s 轮询，避免忙等
-            @stream_select($read, $write, $except, 1);
-            foreach ($read as $stream) {
-                $chunk = fread($stream, 4096);
-                if ($chunk === false || $chunk === '') {
-                    continue;
+        try {
+            while (true) {
+                $status = proc_get_status($proc);
+                $read = [$stdout, $stderr];
+                $write = $except = null;
+                // 1s 轮询，避免忙等
+                @stream_select($read, $write, $except, 1);
+                foreach ($read as $stream) {
+                    $chunk = fread($stream, 4096);
+                    if ($chunk === false || $chunk === '') {
+                        continue;
+                    }
+                    $key = $stream === $stdout ? 'out' : 'err';
+                    self::consumeBufferInternal($buffers[$key] . $chunk, $buffers[$key], $onLine);
                 }
-                $key = $stream === $stdout ? 'out' : 'err';
-                self::consumeBufferInternal($buffers[$key] . $chunk, $buffers[$key], $onLine);
-            }
 
-            if (time() > $deadline) {
+                // 无输出也续心跳（升级锁短 TTL 依赖它），心跳抛出超时则走 finally 杀进程
+                if ($heartbeat !== null && time() - $lastBeat >= 60) {
+                    $lastBeat = time();
+                    $heartbeat();
+                }
+
+                if (time() > $deadline) {
+                    proc_terminate($proc, 9);
+                    $onLine('【超时】composer 执行超过 ' . $timeout . 's，已终止。');
+                    $exitCode = 124;
+                    break;
+                }
+
+                if (!$status['running']) {
+                    // proc_get_status 退出码键为 exitcode（非 code）
+                    $exitCode = (int)($status['exitcode'] ?? -1);
+                    // 读完残余输出
+                    self::drainRemainingInternal($stdout, 'out', $buffers, $onLine);
+                    self::drainRemainingInternal($stderr, 'err', $buffers, $onLine);
+                    break;
+                }
+            }
+        } finally {
+            // 异常路径（如升级预算超时从心跳抛出）也必须终止子进程，避免 composer 僵尸继续改 vendor
+            $status = proc_get_status($proc);
+            if (!empty($status['running'])) {
                 proc_terminate($proc, 9);
-                $onLine('【超时】composer 执行超过 ' . $timeout . 's，已终止。');
-                $exitCode = 124;
-                break;
             }
-
-            if (!$status['running']) {
-                // proc_get_status 退出码键为 exitcode（非 code）
-                $exitCode = (int)($status['exitcode'] ?? -1);
-                // 读完残余输出
-                self::drainRemainingInternal($stdout, 'out', $buffers, $onLine);
-                self::drainRemainingInternal($stderr, 'err', $buffers, $onLine);
-                break;
-            }
+            @fclose($stdout);
+            @fclose($stderr);
+            $closeCode = proc_close($proc);
         }
-
-        @fclose($stdout);
-        @fclose($stderr);
-        $closeCode = proc_close($proc);
         // 若在轮询已捕获退出码则用之，否则用 proc_close 结果
         return $exitCode ?? (int)$closeCode;
     }
@@ -675,7 +689,7 @@ class PluginComposerService
         return false;
     }
 
-    protected static function manualCommand(array $targets): string
+    public static function manualCommand(array $targets): string
     {
         $args = '';
         foreach ($targets as $pkg => $constraint) {
@@ -785,6 +799,9 @@ class PluginComposerService
         $env['COMPOSER_HOME'] = $home;
         // HOME 主要供 Linux/macOS；Windows 下 composer 也接受，无害
         $env['HOME'] = $home;
+        // 升级任务常以 root/服务账号运行：不声明允许 superuser 时 composer 会警告甚至挂起等待交互
+        $env['COMPOSER_ALLOW_SUPERUSER'] = '1';
+        $env['COMPOSER_NO_INTERACTION'] = '1';
         // 保底 PATH，便于 where/which 与依赖查找
         if (empty($env['PATH'])) {
             $env['PATH'] = DIRECTORY_SEPARATOR === '\\'

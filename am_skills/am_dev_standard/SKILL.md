@@ -11,7 +11,7 @@ description: Atrman 统一开发规范（am-serve 后端 / am-web 前端，插�
 
 ## 新增一个系统模块的固定顺序
 
-建表 → Model（`app/model/system/`）→ Validate（`app/validate/system/`，按需）→ Controller（`app/controller/system/`）→ 前端 API（`am-web/src/api/system/`）→ 页面（`am-web/src/views/system/{module}/`）→ 配菜单权限（`#[Permission]` 注解 + 后台菜单）。
+建表（Phinx 迁移，见「数据库」）→ Model（`app/model/system/`）→ Validate（`app/validate/system/`，按需）→ Controller（`app/controller/system/`）→ 前端 API（`am-web/src/api/system/`）→ 页面（`am-web/src/views/system/{module}/`）→ 配菜单权限（`#[Permission]` 注解 + 后台菜单）。
 
 ## 后端铁律
 
@@ -71,6 +71,9 @@ description: Atrman 统一开发规范（am-serve 后端 / am-web 前端，插�
 - 常用：`status` TINYINT(1) DEFAULT 1、`sort` INT DEFAULT 0、`remark` VARCHAR(255)。
 - 索引命名：唯一 `uk_{field}`、普通 `idx_{field}`、联合 `idx_{a}_{b}`。
 - **不用物理外键**，关联关系在应用层维护。
+- **结构变更走 Phinx 迁移**：新表/新列写 `database/migrations/{14位时间戳}_{类名}.php`（时间戳 = 20 + major(2) + minor(2) + patch(2) + 同版本序号(6)，用 `PhinxService::nextTimestamp(PhinxService::SCOPE_BASE, '1.0.9', 1)` 生成），优先 `change()` + DSL（可逆操作自动反向、表名自动加前缀），复杂 DDL/DML 用 `up()/down()` + `execute()`。发布时 upgrade.json 的 `migrations` 声明迁移路径。
+- `install/install.sql` **冻结为初始基线，不再逐版重生成**——全新安装自动执行 InitialSchema + 全部后续 DSL 迁移。legacy .sql 升级脚本仍兼容（自动包装执行），须幂等并同步并入 install.sql。
+- 迁移台账是 `system_migration`（单台账，无 phinxlog）；CLI：`php webman phinx:migrate|status|mark|rollback base`。MySQL DDL 隐式提交，事务只保护 DML；所有执行 SQL 过安全黑名单。
 
 ## API 与权限
 

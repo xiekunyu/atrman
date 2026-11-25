@@ -347,11 +347,16 @@ class InstallService
             // 1. 创建数据库连接（自动创建数据库）
             $pdo = self::createDatabaseConnection($config);
 
-            // 2. 导入 install.sql（建表）
-            self::importSqlFile($pdo, base_path() . '/install/install.sql');
-
-            // 3. 导入 seed.sql（菜单、字典、配置等初始数据）
-            self::importSqlFile($pdo, base_path() . '/install/seed.sql');
+            // 2+3. Phinx 执行初始 schema + 播种；显式传连接参数（.env 尚未写入，提前写会让中途失败被误判已安装）
+            PhinxService::installBase([
+                'host' => $config['db_host'],
+                'port' => $config['db_port'] ?? '3306',
+                'name' => $config['db_name'],
+                'user' => $config['db_user'],
+                'pass' => $config['db_password'],
+                'charset' => $config['db_charset'] ?? 'utf8mb4',
+                'prefix' => 'am_',
+            ]);
 
             // 4. 创建超级管理员
             self::createSuperAdmin($pdo, $config);
@@ -414,54 +419,11 @@ class InstallService
     }
 
     /**
-     * 导入 SQL 文件
-     */
-    private static function importSqlFile(\PDO $pdo, string $filePath): void
-    {
-        if (!is_file($filePath)) {
-            throw new \RuntimeException("SQL 文件不存在：{$filePath}");
-        }
-
-        $sql = file_get_contents($filePath);
-        if (empty($sql)) {
-            throw new \RuntimeException("SQL 文件为空：{$filePath}");
-        }
-
-        // 按分号拆分 SQL 语句，逐条执行
-        // 先移除注释
-        $sql = self::removeSqlComments($sql);
-
-        // 拆分为多条语句
-        $statements = array_filter(
-            array_map('trim', explode(';', $sql)),
-            fn($s) => $s !== ''
-        );
-
-        foreach ($statements as $statement) {
-            if (!empty($statement)) {
-                $pdo->exec($statement);
-            }
-        }
-    }
-
-    /**
-     * 移除 SQL 注释
-     */
-    private static function removeSqlComments(string $sql): string
-    {
-        // 移除单行注释 -- 和 #
-        $sql = preg_replace('/^(?:--|#)\s.*$/m', '', $sql);
-        // 移除多行注释 /* ... */
-        $sql = preg_replace('/\/\*.*?\*\//s', '', $sql);
-        return $sql;
-    }
-
-    /**
      * 创建超级管理员账号
      */
     private static function createSuperAdmin(\PDO $pdo, array $config): void
     {
-        $prefix = $config['db_prefix'] ?? 'am_';
+        $prefix = 'am_'; // 表前缀固定 am_（安装器不再提供自定义，SQL 脚本内表名为硬编码）
         $now = time();
         $salt = substr(bin2hex(random_bytes(2)), 0, 4); // 4 位随机 salt
         $password = passwordHash($config['admin_password'], $salt);
@@ -576,7 +538,7 @@ DB_USERNAME = {$config['db_user']}
 DB_PASSWORD = {$config['db_password']}
 DB_PORT = {$config['db_port']}
 DB_CHARSET = {$config['db_charset']}
-DB_PREFIX = {$config['db_prefix']}
+DB_PREFIX = am_
 
 # ---------- Redis / 缓存（安装表单收集） ----------
 CACHE_DRIVE = redis
@@ -613,7 +575,7 @@ ENV;
     {
         $lockData = json_encode([
             'installed_at' => date('Y-m-d H:i:s'),
-            'installed_ip' => request()->getRealIp() ?: '127.0.0.1',
+            'installed_ip' => request()?->getRealIp() ?: '127.0.0.1',
             'app_version' => '1.0.0',
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 

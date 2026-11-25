@@ -2,11 +2,13 @@
 
 namespace app\service\plugin;
 
+use app\database\SqlMigrationWrapper;
 use app\service\storage\FileService;
 use app\service\support\QueueService;
 use app\service\system\AuditService;
 use app\service\system\BackupService;
 use app\service\system\DatabaseService;
+use app\service\system\PhinxService;
 use app\basic\EventRegistry;
 use app\cache\CacheManager;
 use app\cache\UserMenuCache;
@@ -14,6 +16,7 @@ use app\exception\ApiException;
 use app\model\plugin\App as Plugin;
 use app\model\system\Backup;
 use app\model\system\Menu;
+use app\model\system\Migration;
 use app\utils\Directory;
 use app\utils\Security;
 use support\Log;
@@ -295,7 +298,7 @@ class PluginManager
     public static function install(string $name): Plugin
     {
         return self::changeLifecycle($name, 'beforeInstall', 'afterInstall', function (Plugin $plugin) {
-            DatabaseService::executeInstallSql($plugin);
+            self::installDatabase($plugin);
             $plugin->status = 0;
             $plugin->installed_at = date('Y-m-d H:i:s');
             $plugin->error_message = '';
@@ -312,6 +315,63 @@ class PluginManager
             }
             PluginManifestService::checkRequirements(PluginManifestService::getManifest($plugin));
         });
+    }
+
+    /**
+     * 插件安装数据库执行：有 database/migrations 则直接执行 PHP 迁移，
+     * 否则包装 install.sql 执行（占位符与 executeInstallSql 同口径）。
+     */
+    private static function installDatabase(Plugin $plugin): void
+    {
+        $root = FileService::pluginRootFromPath((string)$plugin->path, (string)$plugin->name);
+        $context = [
+            'migration_type' => Migration::TYPE_PLUGIN,
+            'from_version' => '',
+            'to_version' => (string)$plugin->version,
+        ];
+
+        $migrationsDir = $root . '/database/migrations';
+        if (is_dir($migrationsDir)) {
+            $result = PhinxService::migrate((string)$plugin->name, [$migrationsDir], $context);
+            if ($result['exit'] !== 0) {
+                throw new ApiException('插件迁移执行失败：' . PhinxService::logTail($result['log']));
+            }
+            return;
+        }
+
+        $installSql = $root . '/' . DatabaseService::INSTALL_SQL_FILE;
+        if (!is_file($installSql)) {
+            return;
+        }
+        $replacements = [
+            '{{APP_ID}}' => (string)(int)$plugin->id,
+            '{{APP_NAME}}' => (string)$plugin->name,
+            '{{APP_ENTRY_PATH}}' => self::entryMenuPath((string)$plugin->name),
+        ];
+        $files = [[
+            'sql_path' => $installSql,
+            'original_name' => DatabaseService::INSTALL_SQL_FILE,
+            'semantic_version' => (string)$plugin->version ?: '1.0.0',
+        ]];
+        $workRoot = runtime_path() . '/plugin_migrations';
+        $dir = $workRoot . '/' . $plugin->name . '_install_' . bin2hex(random_bytes(4));
+        Directory::ensureDir($dir);
+        try {
+            $prefix = (string)(config('think-orm.connections.mysql.prefix') ?: env('DB_PREFIX', 'am_'));
+            $map = SqlMigrationWrapper::wrap($files, $dir, PhinxService::SCOPE_PLUGIN, $prefix, $replacements);
+            $result = PhinxService::migrate((string)$plugin->name, [$dir], $context + [
+                'ledger_map' => $map,
+                'files' => $files,
+                'replacements' => $replacements,
+            ]);
+            if ($result['exit'] !== 0) {
+                throw new ApiException('插件安装 SQL 执行失败：' . PhinxService::logTail($result['log']));
+            }
+        } finally {
+            if (is_dir($dir)) {
+                Directory::removeDirWithin($dir, $workRoot);
+            }
+        }
     }
 
     /** 备份插件文件和声明的数据表。 */
